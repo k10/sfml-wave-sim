@@ -5,12 +5,10 @@
 Application::Application(sf::RenderWindow & rw)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
-    , mouseHeldLeft(false)
+    ,mouseHeldRight(false)
+    ,zoomPercent(1.f)
 {
-    // Invert the camera's y-axis //
-    view.setSize(
-        float(renderWindow.getSize().x),
-        renderWindow.getSize().y*-1.f);
+    updateViewSize();
     view.setCenter({ 0,0 });
 }
 void Application::onEvent(const sf::Event & e)
@@ -26,34 +24,42 @@ void Application::onEvent(const sf::Event & e)
     case sf::Event::MouseButtonPressed:
         switch (e.mouseButton.button)
         {
-        case sf::Mouse::Left:
-            mouseHeldLeft = true;
-            //mouseLeftClickOrigin = renderWindow.mapPixelToCoords( { e.mouseButton.x, e.mouseButton.y } );
-            mouseLeftClickOrigin = { float(e.mouseButton.x), float(e.mouseButton.y) };
-            mouseLeftClickCenterScreen = view.getCenter();
+        case sf::Mouse::Right:
+            mouseHeldRight = true;
+            mouseRightClickOrigin = { float(e.mouseButton.x), float(e.mouseButton.y) };
+            mouseRightClickCenterScreen = view.getCenter();
+            break;
+        case sf::Mouse::Middle:
+            zoomPercent = 1.f;
+            updateViewSize();
             break;
         }
         break;
     case sf::Event::MouseButtonReleased:
         switch (e.mouseButton.button)
         {
-        case sf::Mouse::Left:
-            mouseHeldLeft = false;
+        case sf::Mouse::Right:
+            mouseHeldRight = false;
             break;
         }
         break;
     case sf::Event::MouseMoved:
-        if (mouseHeldLeft)
+        if (mouseHeldRight)
         {
-            //sf::Vector2f mousePos = renderWindow.mapPixelToCoords({ e.mouseMove.x, e.mouseMove.y });
-            //view.setCenter(view.getCenter() + sf::Vector2f{ float(e.mouseMove.x), float(e.mouseMove.y) });
             const sf::Vector2f mousePosF(float(e.mouseMove.x), float(e.mouseMove.y));
-            sf::Vector2f fromClickOrigin = mouseLeftClickOrigin - mousePosF;
+            sf::Vector2f fromClickOrigin = mouseRightClickOrigin - mousePosF;
             fromClickOrigin.y *= -1.f;// need to invert y because it's inverted in screen-space
-            view.setCenter(mouseLeftClickCenterScreen + fromClickOrigin);
+            view.setCenter(mouseRightClickCenterScreen + fromClickOrigin);
         }
         break;
     case sf::Event::MouseWheelScrolled:
+        {
+            static const float ZOOM_DELTA = -0.05f;
+            //std::cout << "wheelDelta=" << e.mouseWheelScroll.delta << std::endl;
+            zoomPercent += ZOOM_DELTA*e.mouseWheelScroll.delta;
+            zoomPercent = clampf(zoomPercent, 0.05f, 2.f);
+            updateViewSize();
+        }
         break;
     }
 }
@@ -73,8 +79,8 @@ void Application::drawOrigin()
     auto viewBottomLeft = viewCenter - viewSize*0.5f;
     auto viewTopRight = viewBottomLeft + viewSize;
     sf::Vector2f drawLocation(
-        std::min(std::max(viewBottomLeft.x + 1, 0.f), viewTopRight.x - ORIGIN_LINE_SIZE),
-        std::min(std::max(viewBottomLeft.y + 1, 0.f), viewTopRight.y - ORIGIN_LINE_SIZE));
+        clampf(viewBottomLeft.x + 1, 0.f, viewTopRight.x - ORIGIN_LINE_SIZE),
+        clampf(viewBottomLeft.y + 1, 0.f, viewTopRight.y - ORIGIN_LINE_SIZE));
     // Finally, we draw the origin graphics //
     sf::VertexArray va(sf::PrimitiveType::Lines, 4);
     va[0].position = drawLocation + sf::Vector2f{ 0,0 };
@@ -86,4 +92,11 @@ void Application::drawOrigin()
     va[2].color = sf::Color::Red;
     va[3].color = sf::Color::Red;
     renderWindow.draw(va);
+}
+void Application::updateViewSize()
+{
+    auto winSize = renderWindow.getSize();
+    // Invert the camera's y-axis //
+    sf::Vector2f newSize(float(winSize.x), winSize.y*-1.f);
+    view.setSize(newSize*zoomPercent);
 }
