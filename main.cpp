@@ -1,8 +1,10 @@
-#include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
+#include "Application.h"
 int main()
 {
     sf::RenderWindow window(sf::VideoMode(800, 600), "SFML window");
+    Application app(window);
+    sf::Clock frameTime;
     while (window.isOpen())
     {
         sf::Event event;
@@ -10,18 +12,14 @@ int main()
         {
             switch (event.type)
             {
-            case sf::Event::KeyPressed:
-                if (event.key.code == sf::Keyboard::Escape)
-                {
-                    window.close();
-                }
-                break;
             case sf::Event::Closed:
                 window.close();
-                break;
+                continue;
             }
+            app.onEvent(event);
         }
         window.clear();
+        app.tick(frameTime.restart());
         window.display();
     }
     return EXIT_SUCCESS;
