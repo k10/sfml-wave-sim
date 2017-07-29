@@ -74,7 +74,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%SFML_HOME%\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%SFML_HOME%\include;%JSON_HOME%\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>%SFML_HOME%\lib</AdditionalLibraryDirectories>
@@ -100,7 +100,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%SFML_HOME%\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%SFML_HOME%\include;%JSON_HOME%\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>

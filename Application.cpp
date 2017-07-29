@@ -2,6 +2,9 @@
 #include "toolbox.h"
 #include <algorithm>
 #include <iostream>
+#include <nlohmann\json.hpp>
+using json = nlohmann::json;
+#include <fstream>
 Application::Application(sf::RenderWindow & rw)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
@@ -10,6 +13,18 @@ Application::Application(sf::RenderWindow & rw)
 {
     updateViewSize();
     view.setCenter({ 0,0 });
+    // Test load map data from Tiled json file //
+    json jsonMap;
+    std::ifstream fileJsonMap("assets/map.json");
+    if (fileJsonMap.is_open())
+    {
+        fileJsonMap >> jsonMap;
+        std::cout << jsonMap.dump(4) << std::endl;
+    }
+    else
+    {
+        std::cerr << "ERROR: could not open map.json"<<std::endl;
+    }
 }
 void Application::onEvent(const sf::Event & e)
 {

@@ -1,3 +1,4 @@
 Build Requirements
 -Environment Variables
 ~SFML_HOME - must point to the home directory of your x86 SFML build, including the bin, lib, and include directories
+~JSON_HOME - home directory of https://github.com/nlohmann/json installation, which only consists of an include directory with a single hpp file
