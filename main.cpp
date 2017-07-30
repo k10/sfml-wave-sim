@@ -1,9 +1,9 @@
 #include <SFML/Graphics.hpp>
 #include "Application.h"
-int main()
+int main(int argc, char** argv)
 {
     sf::RenderWindow window(sf::VideoMode(800, 600), "SFML window");
-    Application app(window);
+    Application app(window, argc, argv);
     sf::Clock frameTime;
     while (window.isOpen())
     {

@@ -2,10 +2,7 @@
 #include "toolbox.h"
 #include <algorithm>
 #include <iostream>
-#include <nlohmann\json.hpp>
-using json = nlohmann::json;
-#include <fstream>
-Application::Application(sf::RenderWindow & rw)
+Application::Application(sf::RenderWindow & rw, int argc, char** argv)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
     ,mouseHeldRight(false)
@@ -13,17 +10,19 @@ Application::Application(sf::RenderWindow & rw)
 {
     updateViewSize();
     view.setCenter({ 0,0 });
-    // Test load map data from Tiled json file //
-    json jsonMap;
-    std::ifstream fileJsonMap("assets/map.json");
-    if (fileJsonMap.is_open())
+    // process our arg list //
+    for (int c = 1; c < argc; c++)
     {
-        fileJsonMap >> jsonMap;
-        std::cout << jsonMap.dump(4) << std::endl;
-    }
-    else
-    {
-        std::cerr << "ERROR: could not open map.json"<<std::endl;
+        if (argv[c] == std::string("-map"))
+        {
+            c++;
+            if (c >= argc)
+            {
+                std::cerr << "ERROR: must specify map filename after \"-map\"";
+                break;
+            }
+            map.load(argv[c]);
+        }
     }
 }
 void Application::onEvent(const sf::Event & e)
@@ -81,6 +80,7 @@ void Application::onEvent(const sf::Event & e)
 void Application::tick(const sf::Time & deltaTime)
 {
     renderWindow.setView(view);
+    map.draw(renderWindow);
     drawOrigin();
 }
 void Application::drawOrigin()
