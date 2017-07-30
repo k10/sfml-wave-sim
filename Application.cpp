@@ -6,11 +6,12 @@ Application::Application(sf::RenderWindow & rw, int argc, char** argv)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
     ,mouseHeldRight(false)
-    ,zoomPercent(1.f)
+    ,zoomPercent(0.125f)
 {
     updateViewSize();
     view.setCenter({ 0,0 });
     // process our arg list //
+    bool loadedMap = false;
     for (int c = 1; c < argc; c++)
     {
         if (argv[c] == std::string("-map"))
@@ -18,11 +19,20 @@ Application::Application(sf::RenderWindow & rw, int argc, char** argv)
             c++;
             if (c >= argc)
             {
-                std::cerr << "ERROR: must specify map filename after \"-map\"";
+                std::cerr << "ERROR: must specify map filename after \"-map\"\n";
                 break;
             }
-            map.load(argv[c]);
+            if (!map.load(argv[c]))
+            {
+                exit(EXIT_FAILURE);
+            }
+            loadedMap = true;
         }
+    }
+    if (!loadedMap)
+    {
+        std::cerr << "ERROR: no map loaded! use -map \"filename\" to specify a Tiled JSON map.\n";
+        exit(EXIT_FAILURE);
     }
 }
 void Application::onEvent(const sf::Event & e)
@@ -44,7 +54,7 @@ void Application::onEvent(const sf::Event & e)
             mouseRightClickCenterScreen = view.getCenter();
             break;
         case sf::Mouse::Middle:
-            zoomPercent = 1.f;
+            zoomPercent = 0.125f;
             updateViewSize();
             break;
         }
@@ -63,15 +73,15 @@ void Application::onEvent(const sf::Event & e)
             const sf::Vector2f mousePosF(float(e.mouseMove.x), float(e.mouseMove.y));
             sf::Vector2f fromClickOrigin = mouseRightClickOrigin - mousePosF;
             fromClickOrigin.y *= -1.f;// need to invert y because it's inverted in screen-space
-            view.setCenter(mouseRightClickCenterScreen + fromClickOrigin);
+            view.setCenter(mouseRightClickCenterScreen + fromClickOrigin*zoomPercent);
         }
         break;
     case sf::Event::MouseWheelScrolled:
         {
-            static const float ZOOM_DELTA = -0.05f;
+            static const float ZOOM_DELTA = -0.00625f;
             //std::cout << "wheelDelta=" << e.mouseWheelScroll.delta << std::endl;
             zoomPercent += ZOOM_DELTA*e.mouseWheelScroll.delta;
-            zoomPercent = clampf(zoomPercent, 0.05f, 2.f);
+            zoomPercent = clampf(zoomPercent, 0.005f, 0.125f);
             updateViewSize();
         }
         break;
