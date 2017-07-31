@@ -3,6 +3,8 @@
 #include "Map.h"
 class Application
 {
+private:
+    static const float DEFAULT_ZOOM;
 public:
     Application(sf::RenderWindow& rw, int argc, char** argv);
     void onEvent(const sf::Event& e);

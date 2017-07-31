@@ -2,11 +2,12 @@
 #include "toolbox.h"
 #include <algorithm>
 #include <iostream>
+const float Application::DEFAULT_ZOOM = 0.0625;
 Application::Application(sf::RenderWindow & rw, int argc, char** argv)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
     ,mouseHeldRight(false)
-    ,zoomPercent(0.125f)
+    ,zoomPercent(DEFAULT_ZOOM)
 {
     updateViewSize();
     view.setCenter({ 0,0 });
@@ -54,7 +55,7 @@ void Application::onEvent(const sf::Event & e)
             mouseRightClickCenterScreen = view.getCenter();
             break;
         case sf::Mouse::Middle:
-            zoomPercent = 0.125f;
+            zoomPercent = DEFAULT_ZOOM;
             updateViewSize();
             break;
         }
@@ -79,9 +80,11 @@ void Application::onEvent(const sf::Event & e)
     case sf::Event::MouseWheelScrolled:
         {
             static const float ZOOM_DELTA = -0.00625f;
+            static const float MIN_ZOOM = DEFAULT_ZOOM * 2;
+            static const float MAX_ZOOM = 0.005f;
             //std::cout << "wheelDelta=" << e.mouseWheelScroll.delta << std::endl;
             zoomPercent += ZOOM_DELTA*e.mouseWheelScroll.delta;
-            zoomPercent = clampf(zoomPercent, 0.005f, 0.125f);
+            zoomPercent = clampf(zoomPercent, MAX_ZOOM, MIN_ZOOM);
             updateViewSize();
         }
         break;

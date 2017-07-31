@@ -1,4 +1,5 @@
 Build Requirements
 -Environment Variables
-~SFML_HOME - must point to the home directory of your x86 SFML build, including the bin, lib, and include directories
+~SFML_HOME - must point to the home directory of your built SFML library, contining the bin, lib, and include directories
 ~JSON_HOME - home directory of https://github.com/nlohmann/json installation, which only consists of an include directory with a single hpp file
+~FFTW_HOME - directory containing fftw3.h, as well as fftw's lib & dll files, all in the same directory.  It's the way they deploy their windows binaries, apparently.

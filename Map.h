@@ -27,15 +27,22 @@ private:
         unsigned voxelW;
         unsigned voxelH;
     };
+    struct Voxel
+    {
+    };
 public:
     // returns false if any loading steps fuck up, true if we gucci
     bool load(const std::string& jsonMapFilename);
     void draw(sf::RenderTarget& rt);
+    // since the simulation requires a fixed timestep bound by "the CFL condition",
+    //  we don't pass the true delta-time between frames since we don't need it
+    void stepSimulation();
 private:
     // Simulation data //
     sf::VertexArray vaSimGridLines;
     sf::VertexArray vaSimPartitions;
     std::vector<Partition> partitions;
+    std::vector<std::vector<Voxel>> voxels;
     // JSON map data //
     json jsonMap;
     sf::Texture texTileset;
