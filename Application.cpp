@@ -2,7 +2,7 @@
 #include "toolbox.h"
 #include <algorithm>
 #include <iostream>
-const float Application::DEFAULT_ZOOM = 0.0625;
+const float Application::DEFAULT_ZOOM = 0.03f;
 Application::Application(sf::RenderWindow & rw, int argc, char** argv)
     :renderWindow(rw)
     ,view(rw.getDefaultView())
@@ -41,9 +41,17 @@ void Application::onEvent(const sf::Event & e)
     switch (e.type)
     {
     case sf::Event::KeyPressed:
-        if (e.key.code == sf::Keyboard::Escape)
+        switch(e.key.code)
         {
+        case sf::Keyboard::F1:
+            map.toggleVoxelGrid();
+            break;
+        case sf::Keyboard::F2:
+            map.togglePartitionMeta();
+            break;
+        case sf::Keyboard::Escape:
             renderWindow.close();
+            break;
         }
         break;
     case sf::Event::MouseButtonPressed:
@@ -81,7 +89,7 @@ void Application::onEvent(const sf::Event & e)
         {
             static const float ZOOM_DELTA = -0.00625f;
             static const float MIN_ZOOM = DEFAULT_ZOOM * 2;
-            static const float MAX_ZOOM = 0.005f;
+            static const float MAX_ZOOM = 0.00125f;
             //std::cout << "wheelDelta=" << e.mouseWheelScroll.delta << std::endl;
             zoomPercent += ZOOM_DELTA*e.mouseWheelScroll.delta;
             zoomPercent = clampf(zoomPercent, MAX_ZOOM, MIN_ZOOM);
@@ -98,7 +106,7 @@ void Application::tick(const sf::Time & deltaTime)
 }
 void Application::drawOrigin()
 {
-    static const float ORIGIN_LINE_SIZE = 10;
+    static const float ORIGIN_LINE_SIZE = 1;
     // First, we get the boundaries of the world that we're drawing
     //  so that we can prevent the origin from being drawn off-screen //
     auto viewCenter = view.getCenter();
