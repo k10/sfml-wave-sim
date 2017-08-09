@@ -42,8 +42,12 @@ private:
         unsigned voxelW;
         unsigned voxelH;
         std::vector<PartitionInterface> interfaces;
-        fftw_complex* voxelModes;// size=(voxelW*voxelH)/2 + 1
-        double* voxelPressures;// size=voxelW*voxelH
+        double* voxelModes;
+        double* voxelModesPrevious;
+        double* voxelForcingTerms;
+        double* voxelPressures;
+        fftw_plan planModeToPressure;
+        fftw_plan planForcingToModes;
     };
     struct VoxelMeta
     {

@@ -469,11 +469,62 @@ void Map::draw(sf::RenderTarget & rt)
 void Map::stepSimulation()
 {
     // Update modes within each partition using equation (8) //
+    for (auto& partition : partitions)
+    {
+        for (size_t y = 0; y < partition.voxelH; y++)
+        {
+            for (size_t x = 0; x < partition.voxelW; x++)
+            {
+                const size_t i = y*partition.voxelW + x;
+                // first, we need to calculate omega[i] //
+                ///TODO: precompute these terms
+                ///TODO: use world-space to compute "k" instead of local index space?..
+                /// (does it even actually matter?..)
+                const double k_i_2 = pow(PI, 2)*
+                    (pow(x,2)/pow(partition.voxelW,2) +
+                     pow(y,2)/pow(partition.voxelH,2));
+                const double k_i = sqrt(k_i_2);
+                const double omega_i = SOUND_SPEED_METERS_PER_SECOND*k_i;
+                // then, accumulate the modal terms //
+                ///TODO: pecompute the cosTerms as well
+                const double cosTerm = cos(omega_i*SIM_DELTA_TIME);
+                const double currMode = partition.voxelModes[i];
+                // Equation (8):
+                partition.voxelModes[i] =
+                    2 * currMode*cosTerm -
+                    partition.voxelModesPrevious[i] +
+                    (2 * partition.voxelForcingTerms[i] / k_i_2)*(1 - cosTerm);
+                partition.voxelModesPrevious[i] = currMode;
+            }
+        }
+    }
     // Transform modes to pressure values via IDCT //
+    for (auto& partition : partitions)
+    {
+        fftw_execute(partition.planModeToPressure);
+        ///TODO: normalize the iDCT result by dividing each cell by 2*size??...
+    }
     // Compute & accumulate forcing terms at each cell.
     //  for cells at interfaces, use equation (9),
     //  and for cells with point sources, use the sample value //
+    for (auto& partition : partitions)
+    {
+        for (size_t y = 0; y < partition.voxelH; y++)
+        {
+            for (size_t x = 0; x < partition.voxelW; x++)
+            {
+                const size_t i = y*partition.voxelW + x;
+                partition.voxelForcingTerms[i] = 0;
+                ///TODO: interface cells
+                ///TODO: point source cells
+            }
+        }
+    }
     // Transform forcing terms back to modal space via DCT //
+    for (auto& partition : partitions)
+    {
+        fftw_execute(partition.planForcingToModes);
+    }
 }
 void Map::toggleVoxelGrid()
 {
@@ -499,18 +550,27 @@ Map::Partition::Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsi
     ,voxelW(w)
     ,voxelH(h)
 {
-    const size_t sizeComplex = (voxelW*voxelH) / 2 + 1;
-    const size_t sizeReal = voxelW*voxelH;
-    voxelModes = new fftw_complex[sizeComplex];
-    for (size_t c = 0; c < sizeComplex; c++)
+    const size_t gridSize = voxelW*voxelH;
+    voxelModes = new double[gridSize];
+    voxelModesPrevious = new double[gridSize];
+    voxelForcingTerms = new double[gridSize];
+    voxelPressures = new double[gridSize];
+    for (size_t c = 0; c < gridSize; c++)
     {
-        voxelModes[c][0] = voxelModes[c][1] = 0;
-    }
-    voxelPressures = new double[sizeReal];
-    for (size_t c = 0; c < sizeReal; c++)
-    {
+        //voxelModes[c][0] = voxelModes[c][1] = 0;
+        //voxelModesPrevious[c][0] = voxelModesPrevious[c][1] = 0;
+        //voxelPressures[c][0] = voxelPressures[c][1] = 0;
+        voxelModes[c] = 0;
+        voxelModesPrevious[c] = 0;
+        voxelForcingTerms[c] = 0;
         voxelPressures[c] = 0;
     }
+    planModeToPressure = fftw_plan_r2r_2d(voxelW, voxelH,
+        voxelModes, voxelPressures,
+        FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
+    planForcingToModes = fftw_plan_r2r_2d(voxelW, voxelH,
+        voxelForcingTerms, voxelForcingTerms,
+        FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }
 Map::Partition::Partition(const Partition & other)
     :voxelRow(other.voxelRow)
@@ -519,22 +579,35 @@ Map::Partition::Partition(const Partition & other)
     ,voxelH(other.voxelH)
     ,interfaces(other.interfaces)
 {
-    const size_t sizeComplex = (voxelW*voxelH) / 2 + 1;
-    const size_t sizeReal = voxelW*voxelH;
-    voxelModes = new fftw_complex[sizeComplex];
-    for (size_t c = 0; c < sizeComplex; c++)
+    const size_t gridSize = voxelW*voxelH;
+    voxelModes = new double[gridSize];
+    voxelModesPrevious = new double[gridSize];
+    voxelForcingTerms = new double[gridSize];
+    voxelPressures = new double[gridSize];
+    for (size_t c = 0; c < gridSize; c++)
     {
-        voxelModes[c][0] = other.voxelModes[c][0];
-        voxelModes[c][1] = other.voxelModes[c][1];
-    }
-    voxelPressures = new double[sizeReal];
-    for (size_t c = 0; c < sizeReal; c++)
-    {
+        //for (size_t i = 0; i < 2; i++)
+        //{
+        //    voxelModes[c][i] = other.voxelModes[c][i];
+        //    voxelModesPrevious[c][i] = other.voxelModesPrevious[c][i];
+        //    voxelPressures[c][i] = other.voxelPressures[c][i];
+        //}
+        voxelModes[c] = other.voxelModes[c];
+        voxelModesPrevious[c] = other.voxelModesPrevious[c];
+        voxelForcingTerms[c] = other.voxelModesPrevious[c];
         voxelPressures[c] = other.voxelPressures[c];
     }
+    planModeToPressure = fftw_plan_r2r_2d(voxelW, voxelH,
+        voxelModes, voxelPressures,
+        FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
+    planForcingToModes = fftw_plan_r2r_2d(voxelW, voxelH,
+        voxelForcingTerms, voxelForcingTerms,
+        FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }
 Map::Partition::~Partition()
 {
     if (voxelModes) delete[] voxelModes;
+    if (voxelModesPrevious) delete[] voxelModesPrevious;
+    if (voxelForcingTerms) delete[] voxelForcingTerms;
     if (voxelPressures) delete[] voxelPressures;
 }

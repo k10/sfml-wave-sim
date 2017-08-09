@@ -15,7 +15,7 @@ int main(int argc, char** argv)
         }
         std::cout << "}";
     };
-    std::vector<double> vec = { 0.5f, 0.6f, 0.7f, 0.8f };
+    std::vector<double> vec = { .5, 0, -.5, 0, .5 };
     std::cout << "originalVec="; dumpVec(vec); std::cout << std::endl;
     fftw_plan plan = fftw_plan_r2r_1d(vec.size(), &vec[0], &vec[0], FFTW_REDFT10, FFTW_ESTIMATE);
     fftw_execute(plan);

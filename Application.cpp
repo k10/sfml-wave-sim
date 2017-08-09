@@ -101,6 +101,7 @@ void Application::onEvent(const sf::Event & e)
 void Application::tick(const sf::Time & deltaTime)
 {
     renderWindow.setView(view);
+    map.stepSimulation();
     map.draw(renderWindow);
     drawOrigin();
 }
