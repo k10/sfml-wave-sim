@@ -57,6 +57,9 @@ void Application::onEvent(const sf::Event & e)
     case sf::Event::MouseButtonPressed:
         switch (e.mouseButton.button)
         {
+        case sf::Mouse::Left:
+            map.touch(renderWindow.mapPixelToCoords({ e.mouseButton.x,e.mouseButton.y }));
+            break;
         case sf::Mouse::Right:
             mouseHeldRight = true;
             mouseRightClickOrigin = { float(e.mouseButton.x), float(e.mouseButton.y) };

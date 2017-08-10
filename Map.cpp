@@ -488,11 +488,16 @@ void Map::stepSimulation()
                 ///TODO: pecompute the cosTerms as well
                 const double cosTerm = cos(omega_i*SIM_DELTA_TIME);
                 const double currMode = partition.voxelModes[i];
+                const double forcingModalComponent =
+                    (2 * partition.voxelForcingTerms[i] / pow(omega_i, 2))*(1 - cosTerm);
+                assert(!_isnan(currMode));
                 // Equation (8):
                 partition.voxelModes[i] =
                     2 * currMode*cosTerm -
                     partition.voxelModesPrevious[i] +
-                    (2 * partition.voxelForcingTerms[i] / k_i_2)*(1 - cosTerm);
+                    ///TODO: figure out why this is fucked probably?
+                    (omega_i > 0 ? forcingModalComponent : 0);//some bullshit right here
+                assert(!_isnan(partition.voxelModes[i]));
                 partition.voxelModesPrevious[i] = currMode;
             }
         }
@@ -515,18 +520,25 @@ void Map::stepSimulation()
                 const size_t i = y*partition.voxelW + x;
                 partition.voxelForcingTerms[i] = 0;
                 ///TODO: interface cells
-                ///TODO: point source cells
+                if (partition.ps.voxelIndex == i && partition.ps.timeLeft > 0)
+                {
+                    partition.voxelForcingTerms[i] = partition.ps.step();
+                }
                 // While we're at it, let's update the visuals for grid pressures //
                 const size_t globalGridX = partition.voxelCol + x;
                 const size_t globalGridY = partition.voxelRow + y;
                 const size_t v = globalGridY*voxelCols + globalGridX;
                 const size_t vLocal = y*partition.voxelW + x;
-                static const double MAX_PRESSURE_MAGNITUDE = 1;
+                static const double MAX_PRESSURE_MAGNITUDE = 0.001;/// TODO: figure out wtf this even should be??
                 const double alphaPercent =
                     std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
                 const sf::Uint8 alpha = sf::Uint8(alphaPercent*255);
-                const sf::Color color = partition.voxelPressures[vLocal] > 0 ?
+                sf::Color color = partition.voxelPressures[vLocal] > 0 ?
                     sf::Color(0,0,255,alpha) : sf::Color(255,0,0,alpha);
+                if (_isnan(partition.voxelPressures[vLocal]))
+                {
+                    color = sf::Color::Green;
+                }
                 for (unsigned i = 0; i < 4; i++)
                 {
                     vaSimGridPressures[4 * v + i].color = color;
@@ -547,6 +559,31 @@ void Map::toggleVoxelGrid()
 void Map::togglePartitionMeta()
 {
     m_showPartitionMeta = !m_showPartitionMeta;
+}
+void Map::touch(const sf::Vector2f & worldSpaceLocation)
+{
+    std::cout << "worldSpaceLocation=" << worldSpaceLocation<<std::endl;
+    // first, we need to find out which partition we're in, if any //
+    for (auto& partition : partitions)
+    {
+        const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
+        const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
+        const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
+        const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
+        if (worldSpaceLocation.x >= pLeft && worldSpaceLocation.x < pRight &&
+            worldSpaceLocation.y >= pBottom && worldSpaceLocation.y < pTop)
+        {
+            // next, we need to update the simulation to assign 
+            //  a forcing term at this cell during the simulation's step //
+            const sf::Vector2f localPosition = worldSpaceLocation - sf::Vector2f{ pLeft,pBottom };
+            const size_t localGridX = size_t(localPosition.x / SIM_VOXEL_SPACING);
+            const size_t localGridY = size_t(localPosition.y / SIM_VOXEL_SPACING);
+            const size_t i = localGridY*partition.voxelW + localGridX;
+            partition.ps = {i, SIM_DELTA_TIME , PointSource::Type::CLICK};
+            std::cout << "\t added a click! pressure="<<partition.voxelPressures[i]<<"\n";
+            return;
+        }
+    }
 }
 void Map::nullify()
 {
@@ -624,4 +661,26 @@ Map::Partition::~Partition()
     if (voxelModesPrevious) delete[] voxelModesPrevious;
     if (voxelForcingTerms) delete[] voxelForcingTerms;
     if (voxelPressures) delete[] voxelPressures;
+}
+Map::PointSource::PointSource(size_t voxelIndex, float time, Type t)
+    :voxelIndex(voxelIndex)
+    ,type(t)
+    ,timeLeft(time)
+    ,totalTime(time)
+{
+}
+double Map::PointSource::step()
+{
+    timeLeft -= SIM_DELTA_TIME;
+    switch (type)
+    {
+    case PointSource::Type::CLICK:
+        std::cout << "\tclick stepped!\n";
+        return 1.0;
+    case PointSource::Type::GAUSIAN_PULSE:
+        ///TODO: calculate a broadband gausian pulse of unit amplitude or w/e
+        /// Kinda like this: http://www.gaussianwaves.com/2014/07/generating-basic-signals-gaussian-pulse-and-power-spectral-density-using-fft/
+    default:
+        return 0;
+    }
 }

@@ -32,6 +32,17 @@ private:
         unsigned voxelH;
         size_t partitionIndexOther;
     };
+    struct PointSource
+    {
+        enum class Type : uint8_t
+            {CLICK, GAUSIAN_PULSE};
+        size_t voxelIndex;
+        Type type;
+        float timeLeft;
+        float totalTime;
+        PointSource(size_t voxelIndex = 0, float time = 0.f, Type t = Type::CLICK);
+        double step();
+    };
     struct Partition
     {
         Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsigned h);
@@ -48,6 +59,7 @@ private:
         double* voxelPressures;
         fftw_plan planModeToPressure;
         fftw_plan planForcingToModes;
+        PointSource ps;
     };
     struct VoxelMeta
     {
@@ -66,6 +78,7 @@ public:
     void stepSimulation();
     void toggleVoxelGrid();
     void togglePartitionMeta();
+    void touch(const sf::Vector2f& worldSpaceLocation);
 private:
     void nullify();
 private:
