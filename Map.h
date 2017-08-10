@@ -75,6 +75,8 @@ private:
     // Simulation data //
     sf::VertexArray vaSimGridLines;
     sf::VertexArray vaSimPartitions;
+    sf::VertexArray vaSimPartitionInterfaces;
+    sf::VertexArray vaSimGridPressures;
     std::vector<Partition> partitions;
     unsigned voxelRows;
     unsigned voxelCols;

@@ -93,6 +93,25 @@ bool Map::load(const std::string & jsonMapFilename)
         vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 0].position = { float(c*SIM_VOXEL_SPACING), MAP_TOP };
         vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 1].position = { float(c*SIM_VOXEL_SPACING), MAP_BOTTOM };
     }
+    // initialize VBO for drawing grid pressures //
+    vaSimGridPressures = sf::VertexArray(sf::PrimitiveType::Quads, voxelRows*voxelCols * 4);
+    for (size_t v = 0; v < voxelRows*voxelCols; v++)
+    {
+        const unsigned gridX = v % voxelCols;
+        const unsigned gridY = v / voxelCols;
+        const float left = gridX*SIM_VOXEL_SPACING;
+        const float right = (gridX + 1)*SIM_VOXEL_SPACING;
+        const float bottom = gridY*SIM_VOXEL_SPACING;
+        const float top = (gridY + 1)*SIM_VOXEL_SPACING;
+        vaSimGridPressures[4 * v + 0].position = {left, bottom};
+        vaSimGridPressures[4 * v + 1].position = {right, bottom};
+        vaSimGridPressures[4 * v + 2].position = {right, top};
+        vaSimGridPressures[4 * v + 3].position = {left, top};
+        for (size_t i = 0; i < 4; i++)
+        {
+            vaSimGridPressures[4 * v + i].color = sf::Color::Transparent;
+        }
+    }
     // decompose simulation voxels into large rectangular partitions //////////////////////////////
     voxelMeta.resize(voxelRows, std::vector<VoxelMeta>(voxelCols));
     auto checkNextPartitionRow = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
@@ -196,23 +215,40 @@ bool Map::load(const std::string & jsonMapFilename)
     }
     std::cout << "simulationVoxelTotal=" << simulationVoxelTotal << std::endl;
     // Accumulate VBO for drawing the partitions //
-    vaSimPartitions = sf::VertexArray(sf::PrimitiveType::Quads, 4 * partitions.size());
+    vaSimPartitions = sf::VertexArray(sf::PrimitiveType::Quads, 4 *4* partitions.size());
     for (size_t p = 0; p < partitions.size(); p++)
     {
+        static const sf::Color color(0, 255, 255, 64);
+        static const float OUTLINE_SIZE = SIM_VOXEL_SPACING*0.5f;
         const auto& partition = partitions[p];
         const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
         const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
         const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
         const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
-        const sf::Color color(255, 255, 255, 64);
-        vaSimPartitions[4 * p + 0].position = {pLeft, pBottom};
-        vaSimPartitions[4 * p + 1].position = {pRight, pBottom};
-        vaSimPartitions[4 * p + 2].position = {pRight, pTop};
-        vaSimPartitions[4 * p + 3].position = {pLeft, pTop};
-        vaSimPartitions[4 * p + 0].color = color;
-        vaSimPartitions[4 * p + 1].color = color;
-        vaSimPartitions[4 * p + 2].color = color;
-        vaSimPartitions[4 * p + 3].color = color;
+        // left side //
+        vaSimPartitions[4 * 4 * p + 0].position = {pLeft, pBottom};
+        vaSimPartitions[4 * 4 * p + 1].position = {pLeft + OUTLINE_SIZE, pBottom};
+        vaSimPartitions[4 * 4 * p + 2].position = {pLeft + OUTLINE_SIZE, pTop};
+        vaSimPartitions[4 * 4 * p + 3].position = {pLeft, pTop};
+        // right side //
+        vaSimPartitions[4 * 4 * p + 4].position = { pRight - OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 5].position = { pRight, pBottom };
+        vaSimPartitions[4 * 4 * p + 6].position = { pRight, pTop };
+        vaSimPartitions[4 * 4 * p + 7].position = { pRight - OUTLINE_SIZE, pTop };
+        // top side //
+        vaSimPartitions[4 * 4 * p + 8 ].position = { pLeft + OUTLINE_SIZE, pTop - OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 9 ].position = { pRight - OUTLINE_SIZE, pTop - OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 10].position = { pRight - OUTLINE_SIZE, pTop };
+        vaSimPartitions[4 * 4 * p + 11].position = { pLeft + OUTLINE_SIZE, pTop };
+        // bottom side //
+        vaSimPartitions[4 * 4 * p + 12].position = { pLeft + OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 13].position = { pRight - OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 14].position = { pRight - OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 15].position = { pLeft + OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
+        for (size_t i = 0; i < 4 * 4; i++)
+        {
+            vaSimPartitions[4 * 4 * p + i].color = color;
+        }
     }
     // Calculate partition interfaces //
     auto addPartitionInterfaceMeta = [&](const PartitionInterface& i)->void
@@ -388,6 +424,29 @@ bool Map::load(const std::string & jsonMapFilename)
         partitionIndex++;
     }
     std::cout << "numInterfaces=" << numInterfaces << std::endl;
+    // Accumulate VBO for drawing partition interfaces //
+    vaSimPartitionInterfaces = sf::VertexArray(sf::PrimitiveType::Quads, 4*numInterfaces);
+    unsigned currInterface = 0;
+    for (const auto& partition : partitions)
+    {
+        for (const auto& interface : partition.interfaces)
+        {
+            static const sf::Color color(255, 128, 0, 64);
+            const float iLeft = float(interface.voxelLeftCol*SIM_VOXEL_SPACING);
+            const float iRight = float((interface.voxelLeftCol + interface.voxelW)*SIM_VOXEL_SPACING);
+            const float iTop = float((interface.voxelBottomRow + interface.voxelH)*SIM_VOXEL_SPACING);
+            const float iBottom = float(interface.voxelBottomRow*SIM_VOXEL_SPACING);
+            vaSimPartitionInterfaces[4 * currInterface + 0].position = {iLeft, iBottom};
+            vaSimPartitionInterfaces[4 * currInterface + 1].position = {iRight, iBottom};
+            vaSimPartitionInterfaces[4 * currInterface + 2].position = {iRight, iTop};
+            vaSimPartitionInterfaces[4 * currInterface + 3].position = {iLeft, iTop};
+            for (unsigned i = 0; i < 4; i++)
+            {
+                vaSimPartitionInterfaces[4 * currInterface + i].color = color;
+            }
+            currInterface++;
+        }
+    }
     return true;
 }
 void Map::draw(sf::RenderTarget & rt)
@@ -399,72 +458,12 @@ void Map::draw(sf::RenderTarget & rt)
     }
     if (m_showPartitionMeta)
     {
-        //rt.draw(vaSimPartitions);
-        // Draw boxes around all the partitions //
-        sf::RectangleShape rs;
-        rs.setOutlineColor(sf::Color::Transparent);
-        static const float OUTLINE_MARGIN = SIM_VOXEL_SPACING;
-        for (const auto& partition : partitions)
-        {
-            const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
-            const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
-            const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
-            const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
-            rs.setSize({pRight - pLeft, pTop - pBottom});
-            rs.setOrigin({ 0,rs.getSize().y });
-            rs.setPosition({ pLeft, pTop });
-            rs.setFillColor(sf::Color(0, 255, 255,64));
-            rt.draw(rs);
-            rs.setSize({ pRight - pLeft - (2* SIM_VOXEL_SPACING), 
-                pTop - pBottom - (2* SIM_VOXEL_SPACING) });
-            rs.setOrigin({ 0,rs.getSize().y });
-            rs.setPosition({ pLeft + SIM_VOXEL_SPACING, pTop - SIM_VOXEL_SPACING });
-            rs.setFillColor(sf::Color(0,0,0,128));
-            rt.draw(rs);
-        }
-        // Draw our partition interfaces //
-        sf::VertexArray vaInterfaceArrows[4];
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::UP)] = sf::VertexArray(sf::PrimitiveType::Triangles, 3);
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::UP)][0].position = {-SIM_VOXEL_SPACING /4,0};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::UP)][1].position = {SIM_VOXEL_SPACING /4,0};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::UP)][2].position = {0,SIM_VOXEL_SPACING /2};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::DOWN)] = sf::VertexArray(sf::PrimitiveType::Triangles, 3);
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::DOWN)][0].position = {-SIM_VOXEL_SPACING /4,0};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::DOWN)][1].position = {SIM_VOXEL_SPACING /4,0};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::DOWN)][2].position = {0,-SIM_VOXEL_SPACING /2};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::LEFT)] = sf::VertexArray(sf::PrimitiveType::Triangles, 3);
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::LEFT)][0].position = {0,SIM_VOXEL_SPACING /4};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::LEFT)][1].position = {0,-SIM_VOXEL_SPACING /4};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::LEFT)][2].position = {-SIM_VOXEL_SPACING /2,0};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::RIGHT)] = sf::VertexArray(sf::PrimitiveType::Triangles, 3);
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::RIGHT)][0].position = {0,SIM_VOXEL_SPACING /4};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::RIGHT)][1].position = {0,-SIM_VOXEL_SPACING /4};
-        vaInterfaceArrows[size_t(PartitionInterface::Direction::RIGHT)][2].position = {SIM_VOXEL_SPACING /2,0};
-        for (size_t c = 0; c < 4; c++)
-        {
-            for (size_t v = 0; v < 3; v++)
-            {
-                vaInterfaceArrows[c][v].color = sf::Color(255, 128, 0, 64);
-            }
-        }
-        for (const auto& partition : partitions)
-        {
-            for (const auto& interface : partition.interfaces)
-            {
-                const float iLeft = float(interface.voxelLeftCol*SIM_VOXEL_SPACING);
-                const float iRight = float((interface.voxelLeftCol + interface.voxelW)*SIM_VOXEL_SPACING);
-                const float iTop = float((interface.voxelBottomRow + interface.voxelH)*SIM_VOXEL_SPACING);
-                const float iBottom = float(interface.voxelBottomRow*SIM_VOXEL_SPACING);
-                rs.setSize({ iRight - iLeft, iTop - iBottom });
-                rs.setOrigin({ 0,rs.getSize().y });
-                rs.setPosition({ iLeft, iTop });
-                rs.setFillColor(sf::Color(255, 128, 0, 64));
-                rt.draw(rs);
-            }
-        }
+        rt.draw(vaSimPartitions);
+        rt.draw(vaSimPartitionInterfaces);
         /// TODO: draw a line from each partition to its neighbor via partitionIndexOther
         /// so I can actually tell where the fuck they are actually going to read data from
     }
+    rt.draw(vaSimGridPressures);
 }
 void Map::stepSimulation()
 {
@@ -517,6 +516,21 @@ void Map::stepSimulation()
                 partition.voxelForcingTerms[i] = 0;
                 ///TODO: interface cells
                 ///TODO: point source cells
+                // While we're at it, let's update the visuals for grid pressures //
+                const size_t globalGridX = partition.voxelCol + x;
+                const size_t globalGridY = partition.voxelRow + y;
+                const size_t v = globalGridY*voxelCols + globalGridX;
+                const size_t vLocal = y*partition.voxelW + x;
+                static const double MAX_PRESSURE_MAGNITUDE = 1;
+                const double alphaPercent =
+                    std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
+                const sf::Uint8 alpha = sf::Uint8(alphaPercent*255);
+                const sf::Color color = partition.voxelPressures[vLocal] > 0 ?
+                    sf::Color(0,0,255,alpha) : sf::Color(255,0,0,alpha);
+                for (unsigned i = 0; i < 4; i++)
+                {
+                    vaSimGridPressures[4 * v + i].color = color;
+                }
             }
         }
     }
