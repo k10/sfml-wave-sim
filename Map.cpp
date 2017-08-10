@@ -506,7 +506,17 @@ void Map::stepSimulation()
     for (auto& partition : partitions)
     {
         fftw_execute(partition.planModeToPressure);
-        ///TODO: normalize the iDCT result by dividing each cell by 2*size??...
+        // normalize the iDCT result by dividing each cell by 2*size //
+        ///TODO: figure out if I even need this???
+        const double normalization = 2 * partition.voxelH * 2 * partition.voxelW;
+        for (size_t y = 0; y < partition.voxelH; y++)
+        {
+            for (size_t x = 0; x < partition.voxelW; x++)
+            {
+                const size_t i = y*partition.voxelW + x;
+                partition.voxelPressures[i] /= normalization;
+            }
+        }
     }
     // Compute & accumulate forcing terms at each cell.
     //  for cells at interfaces, use equation (9),
@@ -520,6 +530,7 @@ void Map::stepSimulation()
                 const size_t i = y*partition.voxelW + x;
                 partition.voxelForcingTerms[i] = 0;
                 ///TODO: interface cells
+                // For point sources, sample the source //
                 if (partition.ps.voxelIndex == i && partition.ps.timeLeft > 0)
                 {
                     partition.voxelForcingTerms[i] = partition.ps.step();
@@ -529,7 +540,8 @@ void Map::stepSimulation()
                 const size_t globalGridY = partition.voxelRow + y;
                 const size_t v = globalGridY*voxelCols + globalGridX;
                 const size_t vLocal = y*partition.voxelW + x;
-                static const double MAX_PRESSURE_MAGNITUDE = 0.001;/// TODO: figure out wtf this even should be??
+                /// TODO: figure out wtf this even should be?? and wtf does it mean??
+                static const double MAX_PRESSURE_MAGNITUDE = 0.00000005;
                 const double alphaPercent =
                     std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
                 const sf::Uint8 alpha = sf::Uint8(alphaPercent*255);
@@ -676,7 +688,7 @@ double Map::PointSource::step()
     {
     case PointSource::Type::CLICK:
         std::cout << "\tclick stepped!\n";
-        return 1.0;
+        return 1.0;///WTF does this even mean?..  what units are  these?..
     case PointSource::Type::GAUSIAN_PULSE:
         ///TODO: calculate a broadband gausian pulse of unit amplitude or w/e
         /// Kinda like this: http://www.gaussianwaves.com/2014/07/generating-basic-signals-gaussian-pulse-and-power-spectral-density-using-fft/

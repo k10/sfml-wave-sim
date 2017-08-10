@@ -54,13 +54,28 @@ int main(int argc, char** argv)
     {
         modes[i] = pressures[i] = 0;
     }
+    modes[0 * gridSizeX + 0] = 3;
+    modes[0 * gridSizeX + 1] = 2;
+    modes[1 * gridSizeX + 0] = 2;
+    modes[1 * gridSizeX + 1] = 1;
     fftw_plan planModesToPressures = fftw_plan_r2r_2d(
-        gridSizeX, gridSizeY,
+        gridSizeY, gridSizeX,
         modes, pressures,
         FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
+    fftw_plan planPressuresToModes = fftw_plan_r2r_2d(
+        gridSizeY, gridSizeX,
+        pressures, modes,
+        FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
     fftw_execute(planModesToPressures);
-    std::cout << "Modes="; dumpArray(modes, gridSizeX, gridSizeY); std::cout << std::endl;
-    std::cout << "Pressures="; dumpArray(pressures, gridSizeX, gridSizeY); std::cout << std::endl;
+    for (int i = 0; i < gridSize; i++)
+    {
+        //pressures[i] /= 2*2*gridSize;/// why does this work...?......
+        pressures[i] /= 2*gridSizeX*2*gridSizeY;/// why does this work...?......
+    }
+    std::cout << "Modes=\n"; dumpArray(modes, gridSizeX, gridSizeY); std::cout << std::endl;
+    std::cout << "Pressures=\n"; dumpArray(pressures, gridSizeX, gridSizeY); std::cout << std::endl;
+    fftw_execute(planPressuresToModes);
+    std::cout << "Modes=\n"; dumpArray(modes, gridSizeX, gridSizeY); std::cout << std::endl;
     /// //////////////////////////////////////////////////////////////////////
     sf::RenderWindow window(sf::VideoMode(800, 600), "SFML window");
     Application app(window, argc, argv);
