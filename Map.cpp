@@ -616,10 +616,10 @@ Map::Partition::Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsi
         voxelForcingTerms[c] = 0;
         voxelPressures[c] = 0;
     }
-    planModeToPressure = fftw_plan_r2r_2d(voxelW, voxelH,
+    planModeToPressure = fftw_plan_r2r_2d(voxelH, voxelW,
         voxelModes, voxelPressures,
         FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
-    planForcingToModes = fftw_plan_r2r_2d(voxelW, voxelH,
+    planForcingToModes = fftw_plan_r2r_2d(voxelH, voxelW,
         voxelForcingTerms, voxelForcingTerms,
         FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }
@@ -648,10 +648,10 @@ Map::Partition::Partition(const Partition & other)
         voxelForcingTerms[c] = other.voxelModesPrevious[c];
         voxelPressures[c] = other.voxelPressures[c];
     }
-    planModeToPressure = fftw_plan_r2r_2d(voxelW, voxelH,
+    planModeToPressure = fftw_plan_r2r_2d(voxelH, voxelW,
         voxelModes, voxelPressures,
         FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
-    planForcingToModes = fftw_plan_r2r_2d(voxelW, voxelH,
+    planForcingToModes = fftw_plan_r2r_2d(voxelH, voxelW,
         voxelForcingTerms, voxelForcingTerms,
         FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }

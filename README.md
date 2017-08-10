@@ -9,7 +9,8 @@
 - Environment Variables
     * Path must include `$(SFML_HOME)\bin;$(FFTW_HOME)`
 - You must pass the map json file to be loaded into the simulator via the -map option. Example: `-map assets/map.json`
-Note: you can set these up locally in Visual Studio by going into `Project` -> `sfml-wave-sim Properties...` -> `Debugging`
+
+> Note: you can set these up locally in Visual Studio by going into `Project` -> `sfml-wave-sim Properties...` -> `Debugging`
 
 ## Controls
 - Keyboard
