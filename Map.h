@@ -30,7 +30,6 @@ private:
         unsigned voxelLeftCol;
         unsigned voxelW;
         unsigned voxelH;
-        size_t partitionIndexOther;
     };
     struct PointSource
     {

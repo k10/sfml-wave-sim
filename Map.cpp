@@ -92,15 +92,15 @@ void Map::stepSimulation()
         fftw_execute(partition.planModeToPressure);
         // normalize the iDCT result by dividing each cell by 2*size //
         ///TODO: figure out if I even need this???
-        const double normalization = 2 * partition.voxelH * 2 * partition.voxelW;
-        for (size_t y = 0; y < partition.voxelH; y++)
-        {
-            for (size_t x = 0; x < partition.voxelW; x++)
-            {
-                const size_t i = y*partition.voxelW + x;
-                partition.voxelPressures[i] /= normalization;
-            }
-        }
+        //const double normalization = 2 * partition.voxelH * 2 * partition.voxelW;
+        //for (size_t y = 0; y < partition.voxelH; y++)
+        //{
+        //    for (size_t x = 0; x < partition.voxelW; x++)
+        //    {
+        //        const size_t i = y*partition.voxelW + x;
+        //        partition.voxelPressures[i] /= normalization;
+        //    }
+        //}
     }
     // Compute & accumulate forcing terms at each cell.
     //  for cells at interfaces, use equation (9),
@@ -111,26 +111,21 @@ void Map::stepSimulation()
         {
             for (size_t x = 0; x < partition.voxelW; x++)
             {
+                // zero out the forcing terms first //
                 const size_t i = y*partition.voxelW + x;
                 partition.voxelForcingTerms[i] = 0;
-                ///TODO: interface cells
-                // For point sources, sample the source //
-                if (partition.ps.voxelIndex == i && partition.ps.timeLeft > 0)
-                {
-                    partition.voxelForcingTerms[i] = partition.ps.step();
-                }
                 // While we're at it, let's update the visuals for grid pressures //
                 const size_t globalGridX = partition.voxelCol + x;
                 const size_t globalGridY = partition.voxelRow + y;
                 const size_t v = globalGridY*voxelCols + globalGridX;
                 const size_t vLocal = y*partition.voxelW + x;
                 /// TODO: figure out wtf this even should be?? and wtf does it mean??
-                static const double MAX_PRESSURE_MAGNITUDE = 0.00000005;
+                static const double MAX_PRESSURE_MAGNITUDE = 0.0005;
                 const double alphaPercent =
                     std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
-                const sf::Uint8 alpha = sf::Uint8(alphaPercent*255);
+                const sf::Uint8 alpha = sf::Uint8(alphaPercent * 255);
                 sf::Color color = partition.voxelPressures[vLocal] > 0 ?
-                    sf::Color(0,0,255,alpha) : sf::Color(255,0,0,alpha);
+                    sf::Color(0, 0, 255, alpha) : sf::Color(255, 0, 0, alpha);
                 if (_isnan(partition.voxelPressures[vLocal]))
                 {
                     color = sf::Color::Green;
@@ -140,6 +135,57 @@ void Map::stepSimulation()
                     vaSimGridPressures[4 * v + i].color = color;
                 }
             }
+        }
+        static const sf::Vector2i DIRECTION_VECS[] = {
+            {0,1}, {0,-1}, {-1,0}, {1,0}
+        };
+        for (auto& iFace : partition.interfaces)
+        {
+            const unsigned iFaceRight = iFace.voxelLeftCol + iFace.voxelW;
+            const unsigned iFaceTop = iFace.voxelBottomRow + iFace.voxelH;
+            const sf::Vector2i& iFaceDirection = DIRECTION_VECS[size_t(iFace.dir)];
+            for (unsigned x = iFace.voxelLeftCol; x < iFaceRight; x++)
+            {
+                for (unsigned y = iFace.voxelBottomRow; y < iFaceTop; y++)
+                {
+                    const sf::Vector2i i{ int(x),int(y) };
+                    double pressureStencil = 0;
+                    static const double STENCIL_WEIGHTS[] = {
+                        -2, 27, -270, 270, -27, 2
+                    };
+                    for (int di = -2; di <= 3; di++)
+                    {
+                        const sf::Vector2i stencil_i = i + iFaceDirection*di;
+                        if (stencil_i.x < 0 || stencil_i.x >= int(voxelCols) ||
+                            stencil_i.y < 0 || stencil_i.y >= int(voxelRows))
+                        {
+                            // Just discard parts of the stencil that lie out of bounds??...
+                            continue;
+                        }
+                        double* pPressure = globalPressureLookupTable[stencil_i.y][stencil_i.x];
+                        if (!pPressure)
+                        {
+                            // Just discard parts of the stencil that are outside partitions??...
+                            continue;
+                        }
+                        assert(!_isnan(*pPressure));
+                        pressureStencil += STENCIL_WEIGHTS[di + 2] * (*pPressure);
+                    }
+                    unsigned partitionVoxelX = x - partition.voxelCol;
+                    unsigned partitionVoxelY = y - partition.voxelRow;
+                    const size_t partitionI = partitionVoxelY*partition.voxelW + partitionVoxelX;
+                    // Equation (9): (hopefully?..)
+                    partition.voxelForcingTerms[partitionI] = pow(SOUND_SPEED_METERS_PER_SECOND, 2)*
+                        (1.0 / 180 * pow(SIM_VOXEL_SPACING,2))*pressureStencil;
+                    assert(!_isnan(partition.voxelForcingTerms[partitionI]));
+                }
+            }
+        }
+        // if this partition has an active point-source, apply its pressure value //
+        if (partition.ps.timeLeft > 0)
+        {
+            partition.voxelForcingTerms[partition.ps.voxelIndex] = partition.ps.step();
+            assert(!_isnan(partition.voxelForcingTerms[partition.ps.voxelIndex]));
         }
     }
     // Transform forcing terms back to modal space via DCT //
@@ -169,6 +215,8 @@ void Map::touch(const sf::Vector2f & worldSpaceLocation)
         if (worldSpaceLocation.x >= pLeft && worldSpaceLocation.x < pRight &&
             worldSpaceLocation.y >= pBottom && worldSpaceLocation.y < pTop)
         {
+            std::cout << "\tpartition[x,y]=[" << partition.voxelCol << "," << partition.voxelRow << "]\n";
+            std::cout << "\tpartition[w,h]=[" << partition.voxelW << "," << partition.voxelH << "]\n";
             // next, we need to update the simulation to assign 
             //  a forcing term at this cell during the simulation's step //
             const sf::Vector2f localPosition = worldSpaceLocation - sf::Vector2f{ pLeft,pBottom };
@@ -393,18 +441,24 @@ void Map::decomposeVoxelsIntoPartitions()
             }
             simulationVoxelTotal += partitionW*partitionH;
             partitions.push_back({ r,c,partitionW,partitionH });
-            // add this partition's pressure pointers to the globalPressureLookupTable //
-            for (size_t y = 0; y < partitionH; y++)
-            {
-                for (size_t x = 0; x < partitionW; x++)
-                {
-                    const size_t i = y*partitionW + x;
-                    globalPressureLookupTable[r + y][c + x] = &partitions.back().voxelPressures[i];
-                }
-            }
         }
     }
     std::cout << "simulationVoxelTotal=" << simulationVoxelTotal << std::endl;
+    // add all partition's pressure pointers to the globalPressureLookupTable //
+    //  need to do this after they have all been allocated
+    //  because memory addresses will change if the vector gets resized I think!!!
+    for (auto& partition : partitions)
+    {
+        for (size_t y = 0; y < partition.voxelH; y++)
+        {
+            for (size_t x = 0; x < partition.voxelW; x++)
+            {
+                const size_t i = y*partition.voxelW + x;
+                globalPressureLookupTable[partition.voxelRow + y][partition.voxelCol + x] =
+                    &(partition.voxelPressures[i]);
+            }
+        }
+    }
 }
 void Map::buildPartitionVBO()
 {
@@ -468,7 +522,7 @@ void Map::calculatePartitionInterfaces()
             transientInterface.voxelBottomRow);
         const sf::Vector2i edgeNeighborIndex = interfaceBaseVoxelIndex + edgeNeighborOffset;
         Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
-        transientInterface.partitionIndexOther = size_t(edgeNeighborVoxel.partitionIndex);
+        //transientInterface.partitionIndexOther = size_t(edgeNeighborVoxel.partitionIndex);
         partition.interfaces.push_back(transientInterface);
         addPartitionInterfaceMeta(transientInterface);
         // Add the corresponding interface for the the adjacent partition
@@ -476,7 +530,7 @@ void Map::calculatePartitionInterfaces()
         transientInterface.dir = opposingInterfaceDir;
         transientInterface.voxelLeftCol += edgeNeighborOffset.x;
         transientInterface.voxelBottomRow += edgeNeighborOffset.y;
-        transientInterface.partitionIndexOther = partitionIndex;
+        //transientInterface.partitionIndexOther = partitionIndex;
         partitions[edgeNeighborVoxel.partitionIndex].interfaces.push_back(transientInterface);
         addPartitionInterfaceMeta(transientInterface);
         numInterfaces += 2;
