@@ -80,6 +80,17 @@ public:
     void togglePartitionMeta();
     void touch(const sf::Vector2f& worldSpaceLocation);
 private:
+    // loading/precomputation functions //
+    bool loadJsonMap(const std::string& jsonMapFilename);
+    bool loadTileset(const std::string& jsonMapFilename);
+    void buildMapTileVBO();
+    void buildVoxelGridVBO();
+    void buildVoxelPressureVBO();
+    void decomposeVoxelsIntoPartitions();
+    void buildPartitionVBO();
+    void calculatePartitionInterfaces();
+    void buildInterfaceVBO();
+    // /////////////////////////////// //
     void nullify();
 private:
     // MISC //
@@ -93,8 +104,11 @@ private:
     std::vector<Partition> partitions;
     unsigned voxelRows;
     unsigned voxelCols;
+    std::vector<std::vector<double*>> globalPressureLookupTable;
     // precomputation meta //
     std::vector<std::vector<VoxelMeta>> voxelMeta;
+    float mapPixelHeight;
+    unsigned numInterfaces;
     // JSON map data //
     json jsonMap;
     sf::Texture texTileset;

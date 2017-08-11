@@ -16,437 +16,21 @@ Map::~Map()
 bool Map::load(const std::string & jsonMapFilename)
 {
     nullify();
-    // first, load the map.json file //
-    std::ifstream fileJsonMap(jsonMapFilename);
-    if (fileJsonMap.is_open())
+    if (!loadJsonMap(jsonMapFilename))
     {
-        fileJsonMap >> jsonMap;
-    }
-    else
-    {
-        std::cerr << "ERROR: could not open \""<<jsonMapFilename<<"\"\n";
         return false;
     }
-    // extract the map's folder string //
-    std::string strMapAssetFolder;
-    size_t folderSlashIndex = jsonMapFilename.find_last_of("/");
-    if (folderSlashIndex != std::string::npos)
+    if (!loadTileset(jsonMapFilename))
     {
-        strMapAssetFolder = jsonMapFilename.substr(0, folderSlashIndex + 1);
-    }
-    // extract first tileset image filename //
-    std::string strTilesetFilename = jsonMap["tilesets"][0]["image"];
-    strTilesetFilename = strMapAssetFolder + strTilesetFilename;
-    // load the tileset image into a Sprite //
-    if (!texTileset.loadFromFile(strTilesetFilename))
-    {
-        std::cerr << "ERROR: could not load tileset image! \"" << strTilesetFilename << "\"";
         return false;
     }
-    // iterate over all the tiles and load them all into a VBO //
-    tilePixW = jsonMap["tilesets"][0]["tilewidth"];
-    tilePixH = jsonMap["tilesets"][0]["tileheight"];
-    tilesetColumns = jsonMap["tilesets"][0]["columns"];
-    mapRows = jsonMap["layers"][0]["height"];
-    mapCols = jsonMap["layers"][0]["width"];
-    const float MAP_PIX_H = float(mapRows);// *tilePixH);
-    vaTiles = sf::VertexArray(sf::PrimitiveType::Quads, 4 * mapRows*mapCols);
-    for (unsigned r = 0; r < mapRows; r++)
-    {
-        for (unsigned c = 0; c < mapCols; c++)
-        {
-            unsigned tileArrayIndex = r*mapCols + c;
-            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex] - 1;
-            if (tileId < 0)
-            {
-                continue;
-            }
-            vaTiles[4 * tileArrayIndex + 0].position = { float(c*1),    float(MAP_PIX_H - (r)*1)};
-            vaTiles[4 * tileArrayIndex + 1].position = { float((c+1)*1),float(MAP_PIX_H - (r)*1)};
-            vaTiles[4 * tileArrayIndex + 2].position = { float((c+1)*1),float(MAP_PIX_H - (r+1)*1)};
-            vaTiles[4 * tileArrayIndex + 3].position = { float(c*1),    float(MAP_PIX_H - (r+1)*1)};
-            const int TILESET_ROW = tileId / tilesetColumns;
-            const int TILESET_COL = tileId % tilesetColumns;
-            const sf::Vector2f TILE_UPPER_LEFT(float(TILESET_COL*tilePixW), float(TILESET_ROW*tilePixH));
-            vaTiles[4 * tileArrayIndex + 0].texCoords = TILE_UPPER_LEFT + sf::Vector2f{0.f,0.f};
-            vaTiles[4 * tileArrayIndex + 1].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ float(tilePixW),0.f};
-            vaTiles[4 * tileArrayIndex + 2].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ float(tilePixW),float(tilePixH) };
-            vaTiles[4 * tileArrayIndex + 3].texCoords = TILE_UPPER_LEFT + sf::Vector2f{0.f,float(tilePixH)};
-        }
-    }
-    // build VBO for the simulation grid lines //
-    voxelRows = unsigned(mapRows / SIM_VOXEL_SPACING);
-    voxelCols = unsigned(mapCols / SIM_VOXEL_SPACING);
-    std::cout << "voxel grid={" << voxelCols << "x" << voxelRows << "}\n";
-    vaSimGridLines = sf::VertexArray(sf::PrimitiveType::Lines, 2 * (voxelRows + 1) + 2 * (voxelCols + 1));
-    const float MAP_LEFT = 0;
-    const float MAP_RIGHT = float(mapCols);
-    for (unsigned r = 0; r < voxelRows + 1; r++)
-    {
-        vaSimGridLines[2 * r + 0].position = { MAP_LEFT, float(r*SIM_VOXEL_SPACING) };
-        vaSimGridLines[2 * r + 1].position = { MAP_RIGHT, float(r*SIM_VOXEL_SPACING) };
-    }
-    const float MAP_TOP = float(mapRows);
-    const float MAP_BOTTOM = 0;
-    for (unsigned c = 0; c < voxelCols + 1; c++)
-    {
-        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 0].position = { float(c*SIM_VOXEL_SPACING), MAP_TOP };
-        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 1].position = { float(c*SIM_VOXEL_SPACING), MAP_BOTTOM };
-    }
-    // initialize VBO for drawing grid pressures //
-    vaSimGridPressures = sf::VertexArray(sf::PrimitiveType::Quads, voxelRows*voxelCols * 4);
-    for (size_t v = 0; v < voxelRows*voxelCols; v++)
-    {
-        const unsigned gridX = v % voxelCols;
-        const unsigned gridY = v / voxelCols;
-        const float left = gridX*SIM_VOXEL_SPACING;
-        const float right = (gridX + 1)*SIM_VOXEL_SPACING;
-        const float bottom = gridY*SIM_VOXEL_SPACING;
-        const float top = (gridY + 1)*SIM_VOXEL_SPACING;
-        vaSimGridPressures[4 * v + 0].position = {left, bottom};
-        vaSimGridPressures[4 * v + 1].position = {right, bottom};
-        vaSimGridPressures[4 * v + 2].position = {right, top};
-        vaSimGridPressures[4 * v + 3].position = {left, top};
-        for (size_t i = 0; i < 4; i++)
-        {
-            vaSimGridPressures[4 * v + i].color = sf::Color::Transparent;
-        }
-    }
-    // decompose simulation voxels into large rectangular partitions //////////////////////////////
-    voxelMeta.resize(voxelRows, std::vector<VoxelMeta>(voxelCols));
-    auto checkNextPartitionRow = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
-        unsigned currPartitionW, unsigned currPartitionH )->bool
-    {
-        if (partitionBottomRow + currPartitionH >= voxelRows)
-        {
-            return false;
-        }
-        // we iterate along the -Y edge of the partition
-        //      (because of the way the json map stores the map tiles)
-        //  and return true if all the voxels below are empty space
-        for (unsigned c = 0; c < currPartitionW; c++)
-        {
-            const unsigned vc = partitionLeftCol + c;
-            const unsigned vr = partitionBottomRow + currPartitionH;
-            const sf::Vector2f worldPos((vc + 0.5f)*SIM_VOXEL_SPACING,
-                MAP_PIX_H - (vr + 0.5f)*SIM_VOXEL_SPACING);
-            // because our units are meters, and each map tile is 1m^s,
-            //  we can just cast to ints to obtain map tile indexes:
-            const unsigned mapRow = unsigned(worldPos.y);
-            const unsigned mapCol = unsigned(worldPos.x);
-            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
-            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
-            if (tileId > 0 || voxelMeta[vr][vc].partitionIndex >= 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    };
-    auto checkNextPartitionCol = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
-        unsigned currPartitionW, unsigned currPartitionH)->bool
-    {
-        if (partitionLeftCol + currPartitionW >= voxelCols)
-        {
-            return false;
-        }
-        // we iterate along the +X edge of the partition 
-        //  and return true if all the voxels below are empty space
-        for (unsigned r = 0; r < currPartitionH; r++)
-        {
-            const unsigned vc = partitionLeftCol + currPartitionW;
-            const unsigned vr = partitionBottomRow + r;
-            const sf::Vector2f worldPos((vc + 0.5f)*SIM_VOXEL_SPACING,
-                MAP_PIX_H - (vr + 0.5f)*SIM_VOXEL_SPACING);
-            // because our units are meters, and each map tile is 1m^s,
-            //  we can just cast to ints to obtain map tile indexes:
-            const unsigned mapRow = unsigned(worldPos.y);
-            const unsigned mapCol = unsigned(worldPos.x);
-            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
-            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
-            if (tileId > 0 || voxelMeta[vr][vc].partitionIndex >= 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    };
-    unsigned simulationVoxelTotal = 0;///DEBUG
-    for (unsigned r = 0; r < voxelRows; r++)
-    {
-        for (unsigned c = 0; c < voxelCols; c++)
-        {
-            const sf::Vector2f worldPos((c + 0.5f)*SIM_VOXEL_SPACING, 
-                MAP_PIX_H - (r + 0.5f)*SIM_VOXEL_SPACING);
-            // because our units are meters, and each map tile is 1m^s,
-            //  we can just cast to ints to obtain map tile indexes:
-            const unsigned mapRow = unsigned(worldPos.y);
-            const unsigned mapCol = unsigned(worldPos.x);
-            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
-            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
-            if (tileId > 0 || voxelMeta[r][c].partitionIndex >= 0)
-            {
-                // every non-zero tile is considered solid
-                //  as well as every previously decomposed voxel
-                continue;
-            }
-            unsigned partitionW = 1;
-            unsigned partitionH = 1;
-            while (checkNextPartitionRow(r, c, partitionW, partitionH)) 
-            {
-                partitionH++;
-            }
-            while (checkNextPartitionCol(r, c, partitionW, partitionH))
-            {
-                partitionW++;
-            }
-            // we need to mark the voxels in this partition as decomposed
-            //  so they don't go into new partitions
-            for (unsigned vr = r; vr < r + partitionH; vr++)
-            {
-                for (unsigned vc = c; vc < c + partitionW; vc++)
-                {
-                    voxelMeta[vr][vc].partitionIndex = partitions.size();
-                }
-            }
-            simulationVoxelTotal += partitionW*partitionH;
-            partitions.push_back({ r,c,partitionW,partitionH });
-        }
-    }
-    std::cout << "simulationVoxelTotal=" << simulationVoxelTotal << std::endl;
-    // Accumulate VBO for drawing the partitions //
-    vaSimPartitions = sf::VertexArray(sf::PrimitiveType::Quads, 4 *4* partitions.size());
-    for (size_t p = 0; p < partitions.size(); p++)
-    {
-        static const sf::Color color(0, 255, 255, 64);
-        static const float OUTLINE_SIZE = SIM_VOXEL_SPACING*0.5f;
-        const auto& partition = partitions[p];
-        const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
-        const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
-        const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
-        const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
-        // left side //
-        vaSimPartitions[4 * 4 * p + 0].position = {pLeft, pBottom};
-        vaSimPartitions[4 * 4 * p + 1].position = {pLeft + OUTLINE_SIZE, pBottom};
-        vaSimPartitions[4 * 4 * p + 2].position = {pLeft + OUTLINE_SIZE, pTop};
-        vaSimPartitions[4 * 4 * p + 3].position = {pLeft, pTop};
-        // right side //
-        vaSimPartitions[4 * 4 * p + 4].position = { pRight - OUTLINE_SIZE, pBottom };
-        vaSimPartitions[4 * 4 * p + 5].position = { pRight, pBottom };
-        vaSimPartitions[4 * 4 * p + 6].position = { pRight, pTop };
-        vaSimPartitions[4 * 4 * p + 7].position = { pRight - OUTLINE_SIZE, pTop };
-        // top side //
-        vaSimPartitions[4 * 4 * p + 8 ].position = { pLeft + OUTLINE_SIZE, pTop - OUTLINE_SIZE };
-        vaSimPartitions[4 * 4 * p + 9 ].position = { pRight - OUTLINE_SIZE, pTop - OUTLINE_SIZE };
-        vaSimPartitions[4 * 4 * p + 10].position = { pRight - OUTLINE_SIZE, pTop };
-        vaSimPartitions[4 * 4 * p + 11].position = { pLeft + OUTLINE_SIZE, pTop };
-        // bottom side //
-        vaSimPartitions[4 * 4 * p + 12].position = { pLeft + OUTLINE_SIZE, pBottom };
-        vaSimPartitions[4 * 4 * p + 13].position = { pRight - OUTLINE_SIZE, pBottom };
-        vaSimPartitions[4 * 4 * p + 14].position = { pRight - OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
-        vaSimPartitions[4 * 4 * p + 15].position = { pLeft + OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
-        for (size_t i = 0; i < 4 * 4; i++)
-        {
-            vaSimPartitions[4 * 4 * p + i].color = color;
-        }
-    }
-    // Calculate partition interfaces //
-    auto addPartitionInterfaceMeta = [&](const PartitionInterface& i)->void
-    {
-        for (unsigned r = i.voxelBottomRow; r < i.voxelBottomRow + i.voxelH; r++)
-        {
-            for (unsigned c = i.voxelLeftCol; c < i.voxelLeftCol + i.voxelW; c++)
-            {
-                voxelMeta[r][c].interfacedDirectionFlags |= (1 << int(i.dir));
-            }
-        }
-    };
-    unsigned numInterfaces = 0;/// DEBUG
-    auto addTransientInterface = [&](Map::Partition& partition,
-        PartitionInterface& transientInterface,
-        PartitionInterface::Direction opposingInterfaceDir,
-        const sf::Vector2i& edgeNeighborOffset,
-        size_t partitionIndex)->void
-    {
-        const sf::Vector2i interfaceBaseVoxelIndex(
-            transientInterface.voxelLeftCol, 
-            transientInterface.voxelBottomRow);
-        const sf::Vector2i edgeNeighborIndex = interfaceBaseVoxelIndex +edgeNeighborOffset;
-        Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
-        transientInterface.partitionIndexOther = size_t(edgeNeighborVoxel.partitionIndex);
-        partition.interfaces.push_back(transientInterface);
-        addPartitionInterfaceMeta(transientInterface);
-        // Add the corresponding interface for the the adjacent partition
-        //  as well as the meta info so we don't repeat any interfaces!
-        transientInterface.dir = opposingInterfaceDir;
-        transientInterface.voxelLeftCol += edgeNeighborOffset.x;
-        transientInterface.voxelBottomRow += edgeNeighborOffset.y;
-        transientInterface.partitionIndexOther = partitionIndex;
-        partitions[edgeNeighborVoxel.partitionIndex].interfaces.push_back(transientInterface);
-        addPartitionInterfaceMeta(transientInterface);
-        numInterfaces += 2;
-    };
-    auto processPartitionEdge = [&](Map::Partition& partition,
-        const sf::Vector2i& partitionEdgeVoxelIndex,
-        const sf::Vector2i& edgeNeighborOffset,
-        PartitionInterface::Direction interfaceDir,
-        PartitionInterface::Direction opposingInterfaceDir,
-        PartitionInterface& transientInterface,
-        int& transientNeighborPartitionIndex)->void
-    {
-        const sf::Vector2i edgeNeighborIndex = partitionEdgeVoxelIndex + edgeNeighborOffset;
-        if (edgeNeighborIndex.x < 0 ||
-            edgeNeighborIndex.x >= int(voxelCols) ||
-            edgeNeighborIndex.y < 0 ||
-            edgeNeighborIndex.y >= int(voxelRows))
-        {
-            return;
-        }
-        Map::VoxelMeta& edgeVoxel = voxelMeta[partitionEdgeVoxelIndex.y][partitionEdgeVoxelIndex.x];
-        Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
-        if (edgeNeighborVoxel.partitionIndex >= 0)
-        {
-            uint8_t iFlags = edgeVoxel.interfacedDirectionFlags;
-            if (!(iFlags & (1 << int(interfaceDir))))
-            {
-                if (edgeNeighborVoxel.partitionIndex == transientNeighborPartitionIndex)
-                {
-                    // extend the size of our transient interface //
-                    if (edgeNeighborOffset.x != 0)
-                    {
-                        transientInterface.voxelH++;
-                    }
-                    else
-                    {
-                        transientInterface.voxelW++;
-                    }
-                }
-                else
-                {
-                    // if we have been building an interface already, 
-                    //  add the previous interface to our list
-                    if (transientNeighborPartitionIndex >= 0)
-                    {
-                        addTransientInterface(partition,
-                            transientInterface, 
-                            opposingInterfaceDir, 
-                            edgeNeighborOffset,
-                            edgeVoxel.partitionIndex);
-                    }
-                    transientNeighborPartitionIndex = edgeNeighborVoxel.partitionIndex;
-                    // in any case, reset our transient interface object
-                    transientInterface = { interfaceDir,
-                        unsigned(partitionEdgeVoxelIndex.y),
-                        unsigned(partitionEdgeVoxelIndex.x), 1,1 };
-                }
-            }
-        }
-    };
-    size_t partitionIndex = 0;
-    for (auto& partition : partitions)
-    {
-        const unsigned partitionTop = partition.voxelRow + partition.voxelH;
-        const unsigned partitionRight = partition.voxelCol + partition.voxelW;
-        // Search along the left & right sides to find partition interfaces //
-        PartitionInterface transientInterfaceLeft;
-        int partitionIndexLeft = -1;
-        PartitionInterface transientInterfaceRight;
-        int partitionIndexRight = -1;
-        for (unsigned r = partition.voxelRow; r < partitionTop; r++)
-        {
-            // Left Side... //
-            processPartitionEdge(partition,
-                {int(partition.voxelCol), int(r)}, { -1, 0 },
-                PartitionInterface::Direction::LEFT,
-                PartitionInterface::Direction::RIGHT,
-                transientInterfaceLeft, partitionIndexLeft);
-            // Right Side... //
-            processPartitionEdge(partition,
-                { int(partitionRight - 1), int(r) }, { 1, 0 },
-                PartitionInterface::Direction::RIGHT,
-                PartitionInterface::Direction::LEFT,
-                transientInterfaceRight, partitionIndexRight);
-        }
-        // Add the last transient interfaces, as long as we have found one
-        if (partitionIndexLeft >= 0)
-        {
-            addTransientInterface(partition, 
-                transientInterfaceLeft, 
-                PartitionInterface::Direction::RIGHT,
-                { -1, 0 },
-                partitionIndex);
-        }
-        if (partitionIndexRight >= 0)
-        {
-            addTransientInterface(partition,
-                transientInterfaceRight,
-                PartitionInterface::Direction::LEFT,
-                { 1,0 },
-                partitionIndex);
-        }
-        // Search along the top and bottom sides to find partition interfaces //
-        PartitionInterface transientInterfaceTop;
-        int partitionIndexTop = -1;
-        PartitionInterface transientInterfaceBottom;
-        int partitionIndexBottom = -1;
-        for (unsigned c = partition.voxelCol; c < partitionRight; c++)
-        {
-            // Top side... //
-            processPartitionEdge(partition,
-            { int(c), int(partitionTop - 1) }, { 0, 1 },
-                PartitionInterface::Direction::UP,
-                PartitionInterface::Direction::DOWN,
-                transientInterfaceTop, partitionIndexTop);
-            // Bottom side... //
-            processPartitionEdge(partition,
-            { int(c), int(partition.voxelRow) }, { 0, -1 },
-                PartitionInterface::Direction::DOWN,
-                PartitionInterface::Direction::UP,
-                transientInterfaceBottom, partitionIndexBottom);
-        }
-        // Add the last transient interfaces, as long as we have found one
-        if (partitionIndexTop >= 0)
-        {
-            addTransientInterface(partition,
-                transientInterfaceTop,
-                PartitionInterface::Direction::DOWN,
-                { 0,1 },
-                partitionIndex);
-        }
-        if (partitionIndexBottom >= 0)
-        {
-            addTransientInterface(partition,
-                transientInterfaceBottom,
-                PartitionInterface::Direction::UP,
-                { 0,-1 },
-                partitionIndex);
-        }
-        partitionIndex++;
-    }
-    std::cout << "numInterfaces=" << numInterfaces << std::endl;
-    // Accumulate VBO for drawing partition interfaces //
-    vaSimPartitionInterfaces = sf::VertexArray(sf::PrimitiveType::Quads, 4*numInterfaces);
-    unsigned currInterface = 0;
-    for (const auto& partition : partitions)
-    {
-        for (const auto& interface : partition.interfaces)
-        {
-            static const sf::Color color(255, 128, 0, 64);
-            const float iLeft = float(interface.voxelLeftCol*SIM_VOXEL_SPACING);
-            const float iRight = float((interface.voxelLeftCol + interface.voxelW)*SIM_VOXEL_SPACING);
-            const float iTop = float((interface.voxelBottomRow + interface.voxelH)*SIM_VOXEL_SPACING);
-            const float iBottom = float(interface.voxelBottomRow*SIM_VOXEL_SPACING);
-            vaSimPartitionInterfaces[4 * currInterface + 0].position = {iLeft, iBottom};
-            vaSimPartitionInterfaces[4 * currInterface + 1].position = {iRight, iBottom};
-            vaSimPartitionInterfaces[4 * currInterface + 2].position = {iRight, iTop};
-            vaSimPartitionInterfaces[4 * currInterface + 3].position = {iLeft, iTop};
-            for (unsigned i = 0; i < 4; i++)
-            {
-                vaSimPartitionInterfaces[4 * currInterface + i].color = color;
-            }
-            currInterface++;
-        }
-    }
+    buildMapTileVBO();
+    buildVoxelGridVBO();
+    buildVoxelPressureVBO();
+    decomposeVoxelsIntoPartitions();
+    buildPartitionVBO();
+    calculatePartitionInterfaces();
+    buildInterfaceVBO();
     return true;
 }
 void Map::draw(sf::RenderTarget & rt)
@@ -594,6 +178,470 @@ void Map::touch(const sf::Vector2f & worldSpaceLocation)
             partition.ps = {i, SIM_DELTA_TIME , PointSource::Type::CLICK};
             std::cout << "\t added a click! pressure="<<partition.voxelPressures[i]<<"\n";
             return;
+        }
+    }
+}
+bool Map::loadJsonMap(const std::string& jsonMapFilename)
+{
+    std::ifstream fileJsonMap(jsonMapFilename);
+    if (fileJsonMap.is_open())
+    {
+        fileJsonMap >> jsonMap;
+    }
+    else
+    {
+        std::cerr << "ERROR: could not open \"" << jsonMapFilename << "\"\n";
+        return false;
+    }
+    return true;
+}
+bool Map::loadTileset(const std::string& jsonMapFilename)
+{
+    // extract the map's folder string //
+    std::string strMapAssetFolder;
+    size_t folderSlashIndex = jsonMapFilename.find_last_of("/");
+    if (folderSlashIndex != std::string::npos)
+    {
+        strMapAssetFolder = jsonMapFilename.substr(0, folderSlashIndex + 1);
+    }
+    // extract first tileset image filename //
+    std::string strTilesetFilename = jsonMap["tilesets"][0]["image"];
+    strTilesetFilename = strMapAssetFolder + strTilesetFilename;
+    // load the tileset image into a Sprite //
+    if (!texTileset.loadFromFile(strTilesetFilename))
+    {
+        std::cerr << "ERROR: could not load tileset image! \"" << strTilesetFilename << "\"";
+        return false;
+    }
+    return true;
+}
+void Map::buildMapTileVBO()
+{
+    tilePixW = jsonMap["tilesets"][0]["tilewidth"];
+    tilePixH = jsonMap["tilesets"][0]["tileheight"];
+    tilesetColumns = jsonMap["tilesets"][0]["columns"];
+    mapRows = jsonMap["layers"][0]["height"];
+    mapCols = jsonMap["layers"][0]["width"];
+    mapPixelHeight = float(mapRows);// *tilePixH);
+    vaTiles = sf::VertexArray(sf::PrimitiveType::Quads, 4 * mapRows*mapCols);
+    for (unsigned r = 0; r < mapRows; r++)
+    {
+        for (unsigned c = 0; c < mapCols; c++)
+        {
+            unsigned tileArrayIndex = r*mapCols + c;
+            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex] - 1;
+            if (tileId < 0)
+            {
+                continue;
+            }
+            vaTiles[4 * tileArrayIndex + 0].position = { float(c * 1),    float(mapPixelHeight - (r) * 1) };
+            vaTiles[4 * tileArrayIndex + 1].position = { float((c + 1) * 1),float(mapPixelHeight - (r) * 1) };
+            vaTiles[4 * tileArrayIndex + 2].position = { float((c + 1) * 1),float(mapPixelHeight - (r + 1) * 1) };
+            vaTiles[4 * tileArrayIndex + 3].position = { float(c * 1),    float(mapPixelHeight - (r + 1) * 1) };
+            const int TILESET_ROW = tileId / tilesetColumns;
+            const int TILESET_COL = tileId % tilesetColumns;
+            const sf::Vector2f TILE_UPPER_LEFT(float(TILESET_COL*tilePixW), float(TILESET_ROW*tilePixH));
+            vaTiles[4 * tileArrayIndex + 0].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ 0.f,0.f };
+            vaTiles[4 * tileArrayIndex + 1].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ float(tilePixW),0.f };
+            vaTiles[4 * tileArrayIndex + 2].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ float(tilePixW),float(tilePixH) };
+            vaTiles[4 * tileArrayIndex + 3].texCoords = TILE_UPPER_LEFT + sf::Vector2f{ 0.f,float(tilePixH) };
+        }
+    }
+}
+void Map::buildVoxelGridVBO()
+{
+    voxelRows = unsigned(mapRows / SIM_VOXEL_SPACING);
+    voxelCols = unsigned(mapCols / SIM_VOXEL_SPACING);
+    std::cout << "voxel grid={" << voxelCols << "x" << voxelRows << "}\n";
+    vaSimGridLines = sf::VertexArray(sf::PrimitiveType::Lines, 2 * (voxelRows + 1) + 2 * (voxelCols + 1));
+    const float MAP_LEFT = 0;
+    const float MAP_RIGHT = float(mapCols);
+    for (unsigned r = 0; r < voxelRows + 1; r++)
+    {
+        vaSimGridLines[2 * r + 0].position = { MAP_LEFT, float(r*SIM_VOXEL_SPACING) };
+        vaSimGridLines[2 * r + 1].position = { MAP_RIGHT, float(r*SIM_VOXEL_SPACING) };
+    }
+    const float MAP_TOP = float(mapRows);
+    const float MAP_BOTTOM = 0;
+    for (unsigned c = 0; c < voxelCols + 1; c++)
+    {
+        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 0].position = { float(c*SIM_VOXEL_SPACING), MAP_TOP };
+        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 1].position = { float(c*SIM_VOXEL_SPACING), MAP_BOTTOM };
+    }
+}
+void Map::buildVoxelPressureVBO()
+{
+    vaSimGridPressures = sf::VertexArray(sf::PrimitiveType::Quads, voxelRows*voxelCols * 4);
+    for (size_t v = 0; v < voxelRows*voxelCols; v++)
+    {
+        const unsigned gridX = v % voxelCols;
+        const unsigned gridY = v / voxelCols;
+        const float left = gridX*SIM_VOXEL_SPACING;
+        const float right = (gridX + 1)*SIM_VOXEL_SPACING;
+        const float bottom = gridY*SIM_VOXEL_SPACING;
+        const float top = (gridY + 1)*SIM_VOXEL_SPACING;
+        vaSimGridPressures[4 * v + 0].position = { left, bottom };
+        vaSimGridPressures[4 * v + 1].position = { right, bottom };
+        vaSimGridPressures[4 * v + 2].position = { right, top };
+        vaSimGridPressures[4 * v + 3].position = { left, top };
+        for (size_t i = 0; i < 4; i++)
+        {
+            vaSimGridPressures[4 * v + i].color = sf::Color::Transparent;
+        }
+    }
+}
+void Map::decomposeVoxelsIntoPartitions()
+{
+    globalPressureLookupTable.clear();
+    globalPressureLookupTable.resize(voxelRows, std::vector<double*>(voxelCols, nullptr));
+    voxelMeta.clear();
+    voxelMeta.resize(voxelRows, std::vector<VoxelMeta>(voxelCols));
+    auto checkNextPartitionRow = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
+        unsigned currPartitionW, unsigned currPartitionH)->bool
+    {
+        if (partitionBottomRow + currPartitionH >= voxelRows)
+        {
+            return false;
+        }
+        // we iterate along the -Y edge of the partition
+        //      (because of the way the json map stores the map tiles)
+        //  and return true if all the voxels below are empty space
+        for (unsigned c = 0; c < currPartitionW; c++)
+        {
+            const unsigned vc = partitionLeftCol + c;
+            const unsigned vr = partitionBottomRow + currPartitionH;
+            const sf::Vector2f worldPos((vc + 0.5f)*SIM_VOXEL_SPACING,
+                mapPixelHeight - (vr + 0.5f)*SIM_VOXEL_SPACING);
+            // because our units are meters, and each map tile is 1m^s,
+            //  we can just cast to ints to obtain map tile indexes:
+            const unsigned mapRow = unsigned(worldPos.y);
+            const unsigned mapCol = unsigned(worldPos.x);
+            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
+            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
+            if (tileId > 0 || voxelMeta[vr][vc].partitionIndex >= 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto checkNextPartitionCol = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
+        unsigned currPartitionW, unsigned currPartitionH)->bool
+    {
+        if (partitionLeftCol + currPartitionW >= voxelCols)
+        {
+            return false;
+        }
+        // we iterate along the +X edge of the partition 
+        //  and return true if all the voxels below are empty space
+        for (unsigned r = 0; r < currPartitionH; r++)
+        {
+            const unsigned vc = partitionLeftCol + currPartitionW;
+            const unsigned vr = partitionBottomRow + r;
+            const sf::Vector2f worldPos((vc + 0.5f)*SIM_VOXEL_SPACING,
+                mapPixelHeight - (vr + 0.5f)*SIM_VOXEL_SPACING);
+            // because our units are meters, and each map tile is 1m^s,
+            //  we can just cast to ints to obtain map tile indexes:
+            const unsigned mapRow = unsigned(worldPos.y);
+            const unsigned mapCol = unsigned(worldPos.x);
+            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
+            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
+            if (tileId > 0 || voxelMeta[vr][vc].partitionIndex >= 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    unsigned simulationVoxelTotal = 0;///DEBUG
+    for (unsigned r = 0; r < voxelRows; r++)
+    {
+        for (unsigned c = 0; c < voxelCols; c++)
+        {
+            const sf::Vector2f worldPos((c + 0.5f)*SIM_VOXEL_SPACING,
+                mapPixelHeight - (r + 0.5f)*SIM_VOXEL_SPACING);
+            // because our units are meters, and each map tile is 1m^s,
+            //  we can just cast to ints to obtain map tile indexes:
+            const unsigned mapRow = unsigned(worldPos.y);
+            const unsigned mapCol = unsigned(worldPos.x);
+            unsigned tileArrayIndex = mapRow*mapCols + mapCol;
+            int tileId = jsonMap["layers"][0]["data"][tileArrayIndex];
+            if (tileId > 0 || voxelMeta[r][c].partitionIndex >= 0)
+            {
+                // every non-zero tile is considered solid
+                //  as well as every previously decomposed voxel
+                continue;
+            }
+            unsigned partitionW = 1;
+            unsigned partitionH = 1;
+            while (checkNextPartitionRow(r, c, partitionW, partitionH))
+            {
+                partitionH++;
+            }
+            while (checkNextPartitionCol(r, c, partitionW, partitionH))
+            {
+                partitionW++;
+            }
+            // we need to mark the voxels in this partition as decomposed
+            //  so they don't go into new partitions
+            for (unsigned vr = r; vr < r + partitionH; vr++)
+            {
+                for (unsigned vc = c; vc < c + partitionW; vc++)
+                {
+                    voxelMeta[vr][vc].partitionIndex = partitions.size();
+                }
+            }
+            simulationVoxelTotal += partitionW*partitionH;
+            partitions.push_back({ r,c,partitionW,partitionH });
+            // add this partition's pressure pointers to the globalPressureLookupTable //
+            for (size_t y = 0; y < partitionH; y++)
+            {
+                for (size_t x = 0; x < partitionW; x++)
+                {
+                    const size_t i = y*partitionW + x;
+                    globalPressureLookupTable[r + y][c + x] = &partitions.back().voxelPressures[i];
+                }
+            }
+        }
+    }
+    std::cout << "simulationVoxelTotal=" << simulationVoxelTotal << std::endl;
+}
+void Map::buildPartitionVBO()
+{
+    vaSimPartitions = sf::VertexArray(sf::PrimitiveType::Quads, 4 * 4 * partitions.size());
+    for (size_t p = 0; p < partitions.size(); p++)
+    {
+        static const sf::Color color(0, 255, 255, 64);
+        static const float OUTLINE_SIZE = SIM_VOXEL_SPACING*0.5f;
+        const auto& partition = partitions[p];
+        const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
+        const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
+        const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
+        const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
+        // left side //
+        vaSimPartitions[4 * 4 * p + 0].position = { pLeft, pBottom };
+        vaSimPartitions[4 * 4 * p + 1].position = { pLeft + OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 2].position = { pLeft + OUTLINE_SIZE, pTop };
+        vaSimPartitions[4 * 4 * p + 3].position = { pLeft, pTop };
+        // right side //
+        vaSimPartitions[4 * 4 * p + 4].position = { pRight - OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 5].position = { pRight, pBottom };
+        vaSimPartitions[4 * 4 * p + 6].position = { pRight, pTop };
+        vaSimPartitions[4 * 4 * p + 7].position = { pRight - OUTLINE_SIZE, pTop };
+        // top side //
+        vaSimPartitions[4 * 4 * p + 8].position = { pLeft + OUTLINE_SIZE, pTop - OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 9].position = { pRight - OUTLINE_SIZE, pTop - OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 10].position = { pRight - OUTLINE_SIZE, pTop };
+        vaSimPartitions[4 * 4 * p + 11].position = { pLeft + OUTLINE_SIZE, pTop };
+        // bottom side //
+        vaSimPartitions[4 * 4 * p + 12].position = { pLeft + OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 13].position = { pRight - OUTLINE_SIZE, pBottom };
+        vaSimPartitions[4 * 4 * p + 14].position = { pRight - OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
+        vaSimPartitions[4 * 4 * p + 15].position = { pLeft + OUTLINE_SIZE, pBottom + OUTLINE_SIZE };
+        for (size_t i = 0; i < 4 * 4; i++)
+        {
+            vaSimPartitions[4 * 4 * p + i].color = color;
+        }
+    }
+}
+void Map::calculatePartitionInterfaces()
+{
+    auto addPartitionInterfaceMeta = [&](const PartitionInterface& i)->void
+    {
+        for (unsigned r = i.voxelBottomRow; r < i.voxelBottomRow + i.voxelH; r++)
+        {
+            for (unsigned c = i.voxelLeftCol; c < i.voxelLeftCol + i.voxelW; c++)
+            {
+                voxelMeta[r][c].interfacedDirectionFlags |= (1 << int(i.dir));
+            }
+        }
+    };
+    numInterfaces = 0;
+    auto addTransientInterface = [&](Map::Partition& partition,
+        PartitionInterface& transientInterface,
+        PartitionInterface::Direction opposingInterfaceDir,
+        const sf::Vector2i& edgeNeighborOffset,
+        size_t partitionIndex)->void
+    {
+        const sf::Vector2i interfaceBaseVoxelIndex(
+            transientInterface.voxelLeftCol,
+            transientInterface.voxelBottomRow);
+        const sf::Vector2i edgeNeighborIndex = interfaceBaseVoxelIndex + edgeNeighborOffset;
+        Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
+        transientInterface.partitionIndexOther = size_t(edgeNeighborVoxel.partitionIndex);
+        partition.interfaces.push_back(transientInterface);
+        addPartitionInterfaceMeta(transientInterface);
+        // Add the corresponding interface for the the adjacent partition
+        //  as well as the meta info so we don't repeat any interfaces!
+        transientInterface.dir = opposingInterfaceDir;
+        transientInterface.voxelLeftCol += edgeNeighborOffset.x;
+        transientInterface.voxelBottomRow += edgeNeighborOffset.y;
+        transientInterface.partitionIndexOther = partitionIndex;
+        partitions[edgeNeighborVoxel.partitionIndex].interfaces.push_back(transientInterface);
+        addPartitionInterfaceMeta(transientInterface);
+        numInterfaces += 2;
+    };
+    auto processPartitionEdge = [&](Map::Partition& partition,
+        const sf::Vector2i& partitionEdgeVoxelIndex,
+        const sf::Vector2i& edgeNeighborOffset,
+        PartitionInterface::Direction interfaceDir,
+        PartitionInterface::Direction opposingInterfaceDir,
+        PartitionInterface& transientInterface,
+        int& transientNeighborPartitionIndex)->void
+    {
+        const sf::Vector2i edgeNeighborIndex = partitionEdgeVoxelIndex + edgeNeighborOffset;
+        if (edgeNeighborIndex.x < 0 ||
+            edgeNeighborIndex.x >= int(voxelCols) ||
+            edgeNeighborIndex.y < 0 ||
+            edgeNeighborIndex.y >= int(voxelRows))
+        {
+            return;
+        }
+        Map::VoxelMeta& edgeVoxel = voxelMeta[partitionEdgeVoxelIndex.y][partitionEdgeVoxelIndex.x];
+        Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
+        if (edgeNeighborVoxel.partitionIndex >= 0)
+        {
+            uint8_t iFlags = edgeVoxel.interfacedDirectionFlags;
+            if (!(iFlags & (1 << int(interfaceDir))))
+            {
+                if (edgeNeighborVoxel.partitionIndex == transientNeighborPartitionIndex)
+                {
+                    // extend the size of our transient interface //
+                    if (edgeNeighborOffset.x != 0)
+                    {
+                        transientInterface.voxelH++;
+                    }
+                    else
+                    {
+                        transientInterface.voxelW++;
+                    }
+                }
+                else
+                {
+                    // if we have been building an interface already, 
+                    //  add the previous interface to our list
+                    if (transientNeighborPartitionIndex >= 0)
+                    {
+                        addTransientInterface(partition,
+                            transientInterface,
+                            opposingInterfaceDir,
+                            edgeNeighborOffset,
+                            edgeVoxel.partitionIndex);
+                    }
+                    transientNeighborPartitionIndex = edgeNeighborVoxel.partitionIndex;
+                    // in any case, reset our transient interface object
+                    transientInterface = { interfaceDir,
+                        unsigned(partitionEdgeVoxelIndex.y),
+                        unsigned(partitionEdgeVoxelIndex.x), 1,1 };
+                }
+            }
+        }
+    };
+    size_t partitionIndex = 0;
+    for (auto& partition : partitions)
+    {
+        const unsigned partitionTop = partition.voxelRow + partition.voxelH;
+        const unsigned partitionRight = partition.voxelCol + partition.voxelW;
+        // Search along the left & right sides to find partition interfaces //
+        PartitionInterface transientInterfaceLeft;
+        int partitionIndexLeft = -1;
+        PartitionInterface transientInterfaceRight;
+        int partitionIndexRight = -1;
+        for (unsigned r = partition.voxelRow; r < partitionTop; r++)
+        {
+            // Left Side... //
+            processPartitionEdge(partition,
+            { int(partition.voxelCol), int(r) }, { -1, 0 },
+                PartitionInterface::Direction::LEFT,
+                PartitionInterface::Direction::RIGHT,
+                transientInterfaceLeft, partitionIndexLeft);
+            // Right Side... //
+            processPartitionEdge(partition,
+            { int(partitionRight - 1), int(r) }, { 1, 0 },
+                PartitionInterface::Direction::RIGHT,
+                PartitionInterface::Direction::LEFT,
+                transientInterfaceRight, partitionIndexRight);
+        }
+        // Add the last transient interfaces, as long as we have found one
+        if (partitionIndexLeft >= 0)
+        {
+            addTransientInterface(partition,
+                transientInterfaceLeft,
+                PartitionInterface::Direction::RIGHT,
+                { -1, 0 },
+                partitionIndex);
+        }
+        if (partitionIndexRight >= 0)
+        {
+            addTransientInterface(partition,
+                transientInterfaceRight,
+                PartitionInterface::Direction::LEFT,
+                { 1,0 },
+                partitionIndex);
+        }
+        // Search along the top and bottom sides to find partition interfaces //
+        PartitionInterface transientInterfaceTop;
+        int partitionIndexTop = -1;
+        PartitionInterface transientInterfaceBottom;
+        int partitionIndexBottom = -1;
+        for (unsigned c = partition.voxelCol; c < partitionRight; c++)
+        {
+            // Top side... //
+            processPartitionEdge(partition,
+            { int(c), int(partitionTop - 1) }, { 0, 1 },
+                PartitionInterface::Direction::UP,
+                PartitionInterface::Direction::DOWN,
+                transientInterfaceTop, partitionIndexTop);
+            // Bottom side... //
+            processPartitionEdge(partition,
+            { int(c), int(partition.voxelRow) }, { 0, -1 },
+                PartitionInterface::Direction::DOWN,
+                PartitionInterface::Direction::UP,
+                transientInterfaceBottom, partitionIndexBottom);
+        }
+        // Add the last transient interfaces, as long as we have found one
+        if (partitionIndexTop >= 0)
+        {
+            addTransientInterface(partition,
+                transientInterfaceTop,
+                PartitionInterface::Direction::DOWN,
+                { 0,1 },
+                partitionIndex);
+        }
+        if (partitionIndexBottom >= 0)
+        {
+            addTransientInterface(partition,
+                transientInterfaceBottom,
+                PartitionInterface::Direction::UP,
+                { 0,-1 },
+                partitionIndex);
+        }
+        partitionIndex++;
+    }
+    std::cout << "numInterfaces=" << numInterfaces << std::endl;
+}
+void Map::buildInterfaceVBO()
+{
+    vaSimPartitionInterfaces = sf::VertexArray(sf::PrimitiveType::Quads, 4 * numInterfaces);
+    unsigned currInterface = 0;
+    for (const auto& partition : partitions)
+    {
+        for (const auto& interface : partition.interfaces)
+        {
+            static const sf::Color color(255, 128, 0, 64);
+            const float iLeft = float(interface.voxelLeftCol*SIM_VOXEL_SPACING);
+            const float iRight = float((interface.voxelLeftCol + interface.voxelW)*SIM_VOXEL_SPACING);
+            const float iTop = float((interface.voxelBottomRow + interface.voxelH)*SIM_VOXEL_SPACING);
+            const float iBottom = float(interface.voxelBottomRow*SIM_VOXEL_SPACING);
+            vaSimPartitionInterfaces[4 * currInterface + 0].position = { iLeft, iBottom };
+            vaSimPartitionInterfaces[4 * currInterface + 1].position = { iRight, iBottom };
+            vaSimPartitionInterfaces[4 * currInterface + 2].position = { iRight, iTop };
+            vaSimPartitionInterfaces[4 * currInterface + 3].position = { iLeft, iTop };
+            for (unsigned i = 0; i < 4; i++)
+            {
+                vaSimPartitionInterfaces[4 * currInterface + i].color = color;
+            }
+            currInterface++;
         }
     }
 }
