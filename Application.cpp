@@ -119,8 +119,8 @@ void Application::drawOrigin()
     auto viewBottomLeft = viewCenter - viewSize*0.5f;
     auto viewTopRight = viewBottomLeft + viewSize;
     sf::Vector2f drawLocation(
-        clampf(viewBottomLeft.x + 1, 0.f, viewTopRight.x - ORIGIN_LINE_SIZE),
-        clampf(viewBottomLeft.y + 1, 0.f, viewTopRight.y - ORIGIN_LINE_SIZE));
+        clampf(viewBottomLeft.x + 1.f/999, 0.f, viewTopRight.x - 1.f/9),
+        clampf(viewBottomLeft.y + 1.f/999, 0.f, viewTopRight.y - 1.f/9));
     // Finally, we draw the origin graphics //
     sf::VertexArray va(sf::PrimitiveType::Lines, 4);
     va[0].position = drawLocation + sf::Vector2f{ 0,0 };

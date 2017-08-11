@@ -24,12 +24,12 @@ private:
     struct PartitionInterface
     {
         enum class Direction : uint8_t
-            { UP, DOWN, LEFT, RIGHT };
+            { Y_POSITIVE, Y_NEGATIVE, X_NEGATIVE, X_POSITIVE };
         Direction dir;
-        unsigned voxelBottomRow;
-        unsigned voxelLeftCol;
-        unsigned voxelW;
-        unsigned voxelH;
+        unsigned voxelX;
+        unsigned voxelY;
+        unsigned voxelLengthX;
+        unsigned voxelLengthY;
     };
     struct PointSource
     {
@@ -44,13 +44,13 @@ private:
     };
     struct Partition
     {
-        Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsigned h);
+        Partition(unsigned y, unsigned x, unsigned lx, unsigned ly);
         Partition(const Partition& other);
         ~Partition();
-        unsigned voxelRow;//Bottom
-        unsigned voxelCol;//Left
-        unsigned voxelW;
-        unsigned voxelH;
+        unsigned voxelY;//Bottom
+        unsigned voxelX;//Left
+        unsigned voxelLengthX;
+        unsigned voxelLengthY;
         std::vector<PartitionInterface> interfaces;
         double* voxelModes;
         double* voxelModesPrevious;
@@ -101,8 +101,8 @@ private:
     sf::VertexArray vaSimPartitionInterfaces;
     sf::VertexArray vaSimGridPressures;
     std::vector<Partition> partitions;
-    unsigned voxelRows;
-    unsigned voxelCols;
+    unsigned voxelGridLengthY;
+    unsigned voxelGridLengthX;
     std::vector<std::vector<double*>> globalPressureLookupTable;
     // precomputation meta //
     std::vector<std::vector<VoxelMeta>> voxelMeta;

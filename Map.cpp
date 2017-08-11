@@ -54,18 +54,18 @@ void Map::stepSimulation()
     // Update modes within each partition using equation (8) //
     for (auto& partition : partitions)
     {
-        for (size_t y = 0; y < partition.voxelH; y++)
+        for (size_t y = 0; y < partition.voxelLengthY; y++)
         {
-            for (size_t x = 0; x < partition.voxelW; x++)
+            for (size_t x = 0; x < partition.voxelLengthX; x++)
             {
-                const size_t i = y*partition.voxelW + x;
+                const size_t i = y*partition.voxelLengthX + x;
                 // first, we need to calculate omega[i] //
                 ///TODO: precompute these terms
                 ///TODO: use world-space to compute "k" instead of local index space?..
                 /// (does it even actually matter?..)
                 const double k_i_2 = pow(PI, 2)*
-                    (pow(x,2)/pow(partition.voxelW,2) +
-                     pow(y,2)/pow(partition.voxelH,2));
+                    (pow(x,2)/pow(partition.voxelLengthX,2) +
+                     pow(y,2)/pow(partition.voxelLengthY,2));
                 const double k_i = sqrt(k_i_2);
                 const double omega_i = SOUND_SPEED_METERS_PER_SECOND*k_i;
                 // then, accumulate the modal terms //
@@ -92,12 +92,12 @@ void Map::stepSimulation()
         fftw_execute(partition.planModeToPressure);
         // normalize the iDCT result by dividing each cell by 2*size //
         ///TODO: figure out if I even need this???
-        //const double normalization = 2 * partition.voxelH * 2 * partition.voxelW;
-        //for (size_t y = 0; y < partition.voxelH; y++)
+        //const double normalization = 2 * partition.voxelLengthY * 2 * partition.voxelLengthX;
+        //for (size_t y = 0; y < partition.voxelLengthY; y++)
         //{
-        //    for (size_t x = 0; x < partition.voxelW; x++)
+        //    for (size_t x = 0; x < partition.voxelLengthX; x++)
         //    {
-        //        const size_t i = y*partition.voxelW + x;
+        //        const size_t i = y*partition.voxelLengthX + x;
         //        partition.voxelPressures[i] /= normalization;
         //    }
         //}
@@ -107,18 +107,18 @@ void Map::stepSimulation()
     //  and for cells with point sources, use the sample value //
     for (auto& partition : partitions)
     {
-        for (size_t y = 0; y < partition.voxelH; y++)
+        for (size_t y = 0; y < partition.voxelLengthY; y++)
         {
-            for (size_t x = 0; x < partition.voxelW; x++)
+            for (size_t x = 0; x < partition.voxelLengthX; x++)
             {
                 // zero out the forcing terms first //
-                const size_t i = y*partition.voxelW + x;
+                const size_t i = y*partition.voxelLengthX + x;
                 partition.voxelForcingTerms[i] = 0;
                 // While we're at it, let's update the visuals for grid pressures //
-                const size_t globalGridX = partition.voxelCol + x;
-                const size_t globalGridY = partition.voxelRow + y;
-                const size_t v = globalGridY*voxelCols + globalGridX;
-                const size_t vLocal = y*partition.voxelW + x;
+                const size_t globalGridX = partition.voxelX + x;
+                const size_t globalGridY = partition.voxelY + y;
+                const size_t v = globalGridY*voxelGridLengthX + globalGridX;
+                const size_t vLocal = y*partition.voxelLengthX + x;
                 /// TODO: figure out wtf this even should be?? and wtf does it mean??
                 static const double MAX_PRESSURE_MAGNITUDE = 0.0005;
                 const double alphaPercent =
@@ -141,12 +141,12 @@ void Map::stepSimulation()
         };
         for (auto& iFace : partition.interfaces)
         {
-            const unsigned iFaceRight = iFace.voxelLeftCol + iFace.voxelW;
-            const unsigned iFaceTop = iFace.voxelBottomRow + iFace.voxelH;
+            const unsigned iFaceRight = iFace.voxelX + iFace.voxelLengthX;
+            const unsigned iFaceTop = iFace.voxelY + iFace.voxelLengthY;
             const sf::Vector2i& iFaceDirection = DIRECTION_VECS[size_t(iFace.dir)];
-            for (unsigned x = iFace.voxelLeftCol; x < iFaceRight; x++)
+            for (unsigned x = iFace.voxelX; x < iFaceRight; x++)
             {
-                for (unsigned y = iFace.voxelBottomRow; y < iFaceTop; y++)
+                for (unsigned y = iFace.voxelY; y < iFaceTop; y++)
                 {
                     const sf::Vector2i i{ int(x),int(y) };
                     double pressureStencil = 0;
@@ -156,8 +156,8 @@ void Map::stepSimulation()
                     for (int di = -2; di <= 3; di++)
                     {
                         const sf::Vector2i stencil_i = i + iFaceDirection*di;
-                        if (stencil_i.x < 0 || stencil_i.x >= int(voxelCols) ||
-                            stencil_i.y < 0 || stencil_i.y >= int(voxelRows))
+                        if (stencil_i.x < 0 || stencil_i.x >= int(voxelGridLengthX) ||
+                            stencil_i.y < 0 || stencil_i.y >= int(voxelGridLengthY))
                         {
                             // Just discard parts of the stencil that lie out of bounds??...
                             continue;
@@ -171,9 +171,9 @@ void Map::stepSimulation()
                         assert(!_isnan(*pPressure));
                         pressureStencil += STENCIL_WEIGHTS[di + 2] * (*pPressure);
                     }
-                    unsigned partitionVoxelX = x - partition.voxelCol;
-                    unsigned partitionVoxelY = y - partition.voxelRow;
-                    const size_t partitionI = partitionVoxelY*partition.voxelW + partitionVoxelX;
+                    unsigned partitionVoxelX = x - partition.voxelX;
+                    unsigned partitionVoxelY = y - partition.voxelY;
+                    const size_t partitionI = partitionVoxelY*partition.voxelLengthX + partitionVoxelX;
                     // Equation (9): (hopefully?..)
                     partition.voxelForcingTerms[partitionI] = pow(SOUND_SPEED_METERS_PER_SECOND, 2)*
                         (1.0 / 180 * pow(SIM_VOXEL_SPACING,2))*pressureStencil;
@@ -208,21 +208,21 @@ void Map::touch(const sf::Vector2f & worldSpaceLocation)
     // first, we need to find out which partition we're in, if any //
     for (auto& partition : partitions)
     {
-        const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
-        const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
-        const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
-        const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
+        const float pLeft = float(partition.voxelX*SIM_VOXEL_SPACING);
+        const float pRight = float((partition.voxelX + partition.voxelLengthX)*SIM_VOXEL_SPACING);
+        const float pTop = float((partition.voxelY + partition.voxelLengthY)*SIM_VOXEL_SPACING);
+        const float pBottom = float(partition.voxelY*SIM_VOXEL_SPACING);
         if (worldSpaceLocation.x >= pLeft && worldSpaceLocation.x < pRight &&
             worldSpaceLocation.y >= pBottom && worldSpaceLocation.y < pTop)
         {
-            std::cout << "\tpartition[x,y]=[" << partition.voxelCol << "," << partition.voxelRow << "]\n";
-            std::cout << "\tpartition[w,h]=[" << partition.voxelW << "," << partition.voxelH << "]\n";
+            std::cout << "\tpartition[x,y]=[" << partition.voxelX << "," << partition.voxelY << "]\n";
+            std::cout << "\tpartition[w,h]=[" << partition.voxelLengthX << "," << partition.voxelLengthY << "]\n";
             // next, we need to update the simulation to assign 
             //  a forcing term at this cell during the simulation's step //
             const sf::Vector2f localPosition = worldSpaceLocation - sf::Vector2f{ pLeft,pBottom };
             const size_t localGridX = size_t(localPosition.x / SIM_VOXEL_SPACING);
             const size_t localGridY = size_t(localPosition.y / SIM_VOXEL_SPACING);
-            const size_t i = localGridY*partition.voxelW + localGridX;
+            const size_t i = localGridY*partition.voxelLengthX + localGridX;
             partition.ps = {i, SIM_DELTA_TIME , PointSource::Type::CLICK};
             std::cout << "\t added a click! pressure="<<partition.voxelPressures[i]<<"\n";
             return;
@@ -298,32 +298,32 @@ void Map::buildMapTileVBO()
 }
 void Map::buildVoxelGridVBO()
 {
-    voxelRows = unsigned(mapRows / SIM_VOXEL_SPACING);
-    voxelCols = unsigned(mapCols / SIM_VOXEL_SPACING);
-    std::cout << "voxel grid={" << voxelCols << "x" << voxelRows << "}\n";
-    vaSimGridLines = sf::VertexArray(sf::PrimitiveType::Lines, 2 * (voxelRows + 1) + 2 * (voxelCols + 1));
+    voxelGridLengthY = unsigned(mapRows / SIM_VOXEL_SPACING);
+    voxelGridLengthX = unsigned(mapCols / SIM_VOXEL_SPACING);
+    std::cout << "voxel grid={" << voxelGridLengthX << "x" << voxelGridLengthY << "}\n";
+    vaSimGridLines = sf::VertexArray(sf::PrimitiveType::Lines, 2 * (voxelGridLengthY + 1) + 2 * (voxelGridLengthX + 1));
     const float MAP_LEFT = 0;
     const float MAP_RIGHT = float(mapCols);
-    for (unsigned r = 0; r < voxelRows + 1; r++)
+    for (unsigned r = 0; r < voxelGridLengthY + 1; r++)
     {
         vaSimGridLines[2 * r + 0].position = { MAP_LEFT, float(r*SIM_VOXEL_SPACING) };
         vaSimGridLines[2 * r + 1].position = { MAP_RIGHT, float(r*SIM_VOXEL_SPACING) };
     }
     const float MAP_TOP = float(mapRows);
     const float MAP_BOTTOM = 0;
-    for (unsigned c = 0; c < voxelCols + 1; c++)
+    for (unsigned c = 0; c < voxelGridLengthX + 1; c++)
     {
-        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 0].position = { float(c*SIM_VOXEL_SPACING), MAP_TOP };
-        vaSimGridLines[2 * (voxelRows + 1) + 2 * c + 1].position = { float(c*SIM_VOXEL_SPACING), MAP_BOTTOM };
+        vaSimGridLines[2 * (voxelGridLengthY + 1) + 2 * c + 0].position = { float(c*SIM_VOXEL_SPACING), MAP_TOP };
+        vaSimGridLines[2 * (voxelGridLengthY + 1) + 2 * c + 1].position = { float(c*SIM_VOXEL_SPACING), MAP_BOTTOM };
     }
 }
 void Map::buildVoxelPressureVBO()
 {
-    vaSimGridPressures = sf::VertexArray(sf::PrimitiveType::Quads, voxelRows*voxelCols * 4);
-    for (size_t v = 0; v < voxelRows*voxelCols; v++)
+    vaSimGridPressures = sf::VertexArray(sf::PrimitiveType::Quads, voxelGridLengthY*voxelGridLengthX * 4);
+    for (size_t v = 0; v < voxelGridLengthY*voxelGridLengthX; v++)
     {
-        const unsigned gridX = v % voxelCols;
-        const unsigned gridY = v / voxelCols;
+        const unsigned gridX = v % voxelGridLengthX;
+        const unsigned gridY = v / voxelGridLengthX;
         const float left = gridX*SIM_VOXEL_SPACING;
         const float right = (gridX + 1)*SIM_VOXEL_SPACING;
         const float bottom = gridY*SIM_VOXEL_SPACING;
@@ -341,13 +341,13 @@ void Map::buildVoxelPressureVBO()
 void Map::decomposeVoxelsIntoPartitions()
 {
     globalPressureLookupTable.clear();
-    globalPressureLookupTable.resize(voxelRows, std::vector<double*>(voxelCols, nullptr));
+    globalPressureLookupTable.resize(voxelGridLengthY, std::vector<double*>(voxelGridLengthX, nullptr));
     voxelMeta.clear();
-    voxelMeta.resize(voxelRows, std::vector<VoxelMeta>(voxelCols));
+    voxelMeta.resize(voxelGridLengthY, std::vector<VoxelMeta>(voxelGridLengthX));
     auto checkNextPartitionRow = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
         unsigned currPartitionW, unsigned currPartitionH)->bool
     {
-        if (partitionBottomRow + currPartitionH >= voxelRows)
+        if (partitionBottomRow + currPartitionH >= voxelGridLengthY)
         {
             return false;
         }
@@ -376,7 +376,7 @@ void Map::decomposeVoxelsIntoPartitions()
     auto checkNextPartitionCol = [&](unsigned partitionBottomRow, unsigned partitionLeftCol,
         unsigned currPartitionW, unsigned currPartitionH)->bool
     {
-        if (partitionLeftCol + currPartitionW >= voxelCols)
+        if (partitionLeftCol + currPartitionW >= voxelGridLengthX)
         {
             return false;
         }
@@ -402,9 +402,9 @@ void Map::decomposeVoxelsIntoPartitions()
         return true;
     };
     unsigned simulationVoxelTotal = 0;///DEBUG
-    for (unsigned r = 0; r < voxelRows; r++)
+    for (unsigned r = 0; r < voxelGridLengthY; r++)
     {
-        for (unsigned c = 0; c < voxelCols; c++)
+        for (unsigned c = 0; c < voxelGridLengthX; c++)
         {
             const sf::Vector2f worldPos((c + 0.5f)*SIM_VOXEL_SPACING,
                 mapPixelHeight - (r + 0.5f)*SIM_VOXEL_SPACING);
@@ -449,12 +449,12 @@ void Map::decomposeVoxelsIntoPartitions()
     //  because memory addresses will change if the vector gets resized I think!!!
     for (auto& partition : partitions)
     {
-        for (size_t y = 0; y < partition.voxelH; y++)
+        for (size_t y = 0; y < partition.voxelLengthY; y++)
         {
-            for (size_t x = 0; x < partition.voxelW; x++)
+            for (size_t x = 0; x < partition.voxelLengthX; x++)
             {
-                const size_t i = y*partition.voxelW + x;
-                globalPressureLookupTable[partition.voxelRow + y][partition.voxelCol + x] =
+                const size_t i = y*partition.voxelLengthX + x;
+                globalPressureLookupTable[partition.voxelY + y][partition.voxelX + x] =
                     &(partition.voxelPressures[i]);
             }
         }
@@ -468,10 +468,10 @@ void Map::buildPartitionVBO()
         static const sf::Color color(0, 255, 255, 64);
         static const float OUTLINE_SIZE = SIM_VOXEL_SPACING*0.5f;
         const auto& partition = partitions[p];
-        const float pLeft = float(partition.voxelCol*SIM_VOXEL_SPACING);
-        const float pRight = float((partition.voxelCol + partition.voxelW)*SIM_VOXEL_SPACING);
-        const float pTop = float((partition.voxelRow + partition.voxelH)*SIM_VOXEL_SPACING);
-        const float pBottom = float(partition.voxelRow*SIM_VOXEL_SPACING);
+        const float pLeft = float(partition.voxelX*SIM_VOXEL_SPACING);
+        const float pRight = float((partition.voxelX + partition.voxelLengthX)*SIM_VOXEL_SPACING);
+        const float pTop = float((partition.voxelY + partition.voxelLengthY)*SIM_VOXEL_SPACING);
+        const float pBottom = float(partition.voxelY*SIM_VOXEL_SPACING);
         // left side //
         vaSimPartitions[4 * 4 * p + 0].position = { pLeft, pBottom };
         vaSimPartitions[4 * 4 * p + 1].position = { pLeft + OUTLINE_SIZE, pBottom };
@@ -502,9 +502,9 @@ void Map::calculatePartitionInterfaces()
 {
     auto addPartitionInterfaceMeta = [&](const PartitionInterface& i)->void
     {
-        for (unsigned r = i.voxelBottomRow; r < i.voxelBottomRow + i.voxelH; r++)
+        for (unsigned r = i.voxelY; r < i.voxelY + i.voxelLengthY; r++)
         {
-            for (unsigned c = i.voxelLeftCol; c < i.voxelLeftCol + i.voxelW; c++)
+            for (unsigned c = i.voxelX; c < i.voxelX + i.voxelLengthX; c++)
             {
                 voxelMeta[r][c].interfacedDirectionFlags |= (1 << int(i.dir));
             }
@@ -518,8 +518,8 @@ void Map::calculatePartitionInterfaces()
         size_t partitionIndex)->void
     {
         const sf::Vector2i interfaceBaseVoxelIndex(
-            transientInterface.voxelLeftCol,
-            transientInterface.voxelBottomRow);
+            transientInterface.voxelX,
+            transientInterface.voxelY);
         const sf::Vector2i edgeNeighborIndex = interfaceBaseVoxelIndex + edgeNeighborOffset;
         Map::VoxelMeta& edgeNeighborVoxel = voxelMeta[edgeNeighborIndex.y][edgeNeighborIndex.x];
         //transientInterface.partitionIndexOther = size_t(edgeNeighborVoxel.partitionIndex);
@@ -528,8 +528,8 @@ void Map::calculatePartitionInterfaces()
         // Add the corresponding interface for the the adjacent partition
         //  as well as the meta info so we don't repeat any interfaces!
         transientInterface.dir = opposingInterfaceDir;
-        transientInterface.voxelLeftCol += edgeNeighborOffset.x;
-        transientInterface.voxelBottomRow += edgeNeighborOffset.y;
+        transientInterface.voxelX += edgeNeighborOffset.x;
+        transientInterface.voxelY += edgeNeighborOffset.y;
         //transientInterface.partitionIndexOther = partitionIndex;
         partitions[edgeNeighborVoxel.partitionIndex].interfaces.push_back(transientInterface);
         addPartitionInterfaceMeta(transientInterface);
@@ -545,9 +545,9 @@ void Map::calculatePartitionInterfaces()
     {
         const sf::Vector2i edgeNeighborIndex = partitionEdgeVoxelIndex + edgeNeighborOffset;
         if (edgeNeighborIndex.x < 0 ||
-            edgeNeighborIndex.x >= int(voxelCols) ||
+            edgeNeighborIndex.x >= int(voxelGridLengthX) ||
             edgeNeighborIndex.y < 0 ||
-            edgeNeighborIndex.y >= int(voxelRows))
+            edgeNeighborIndex.y >= int(voxelGridLengthY))
         {
             return;
         }
@@ -563,11 +563,11 @@ void Map::calculatePartitionInterfaces()
                     // extend the size of our transient interface //
                     if (edgeNeighborOffset.x != 0)
                     {
-                        transientInterface.voxelH++;
+                        transientInterface.voxelLengthY++;
                     }
                     else
                     {
-                        transientInterface.voxelW++;
+                        transientInterface.voxelLengthX++;
                     }
                 }
                 else
@@ -585,8 +585,8 @@ void Map::calculatePartitionInterfaces()
                     transientNeighborPartitionIndex = edgeNeighborVoxel.partitionIndex;
                     // in any case, reset our transient interface object
                     transientInterface = { interfaceDir,
-                        unsigned(partitionEdgeVoxelIndex.y),
-                        unsigned(partitionEdgeVoxelIndex.x), 1,1 };
+                        unsigned(partitionEdgeVoxelIndex.x),
+                        unsigned(partitionEdgeVoxelIndex.y), 1,1 };
                 }
             }
         }
@@ -594,26 +594,26 @@ void Map::calculatePartitionInterfaces()
     size_t partitionIndex = 0;
     for (auto& partition : partitions)
     {
-        const unsigned partitionTop = partition.voxelRow + partition.voxelH;
-        const unsigned partitionRight = partition.voxelCol + partition.voxelW;
+        const unsigned partitionTop = partition.voxelY + partition.voxelLengthY;
+        const unsigned partitionRight = partition.voxelX + partition.voxelLengthX;
         // Search along the left & right sides to find partition interfaces //
         PartitionInterface transientInterfaceLeft;
         int partitionIndexLeft = -1;
         PartitionInterface transientInterfaceRight;
         int partitionIndexRight = -1;
-        for (unsigned r = partition.voxelRow; r < partitionTop; r++)
+        for (unsigned r = partition.voxelY; r < partitionTop; r++)
         {
             // Left Side... //
             processPartitionEdge(partition,
-            { int(partition.voxelCol), int(r) }, { -1, 0 },
-                PartitionInterface::Direction::LEFT,
-                PartitionInterface::Direction::RIGHT,
+            { int(partition.voxelX), int(r) }, { -1, 0 },
+                PartitionInterface::Direction::X_NEGATIVE,
+                PartitionInterface::Direction::X_POSITIVE,
                 transientInterfaceLeft, partitionIndexLeft);
             // Right Side... //
             processPartitionEdge(partition,
             { int(partitionRight - 1), int(r) }, { 1, 0 },
-                PartitionInterface::Direction::RIGHT,
-                PartitionInterface::Direction::LEFT,
+                PartitionInterface::Direction::X_POSITIVE,
+                PartitionInterface::Direction::X_NEGATIVE,
                 transientInterfaceRight, partitionIndexRight);
         }
         // Add the last transient interfaces, as long as we have found one
@@ -621,7 +621,7 @@ void Map::calculatePartitionInterfaces()
         {
             addTransientInterface(partition,
                 transientInterfaceLeft,
-                PartitionInterface::Direction::RIGHT,
+                PartitionInterface::Direction::X_POSITIVE,
                 { -1, 0 },
                 partitionIndex);
         }
@@ -629,7 +629,7 @@ void Map::calculatePartitionInterfaces()
         {
             addTransientInterface(partition,
                 transientInterfaceRight,
-                PartitionInterface::Direction::LEFT,
+                PartitionInterface::Direction::X_NEGATIVE,
                 { 1,0 },
                 partitionIndex);
         }
@@ -638,19 +638,19 @@ void Map::calculatePartitionInterfaces()
         int partitionIndexTop = -1;
         PartitionInterface transientInterfaceBottom;
         int partitionIndexBottom = -1;
-        for (unsigned c = partition.voxelCol; c < partitionRight; c++)
+        for (unsigned c = partition.voxelX; c < partitionRight; c++)
         {
             // Top side... //
             processPartitionEdge(partition,
             { int(c), int(partitionTop - 1) }, { 0, 1 },
-                PartitionInterface::Direction::UP,
-                PartitionInterface::Direction::DOWN,
+                PartitionInterface::Direction::Y_POSITIVE,
+                PartitionInterface::Direction::Y_NEGATIVE,
                 transientInterfaceTop, partitionIndexTop);
             // Bottom side... //
             processPartitionEdge(partition,
-            { int(c), int(partition.voxelRow) }, { 0, -1 },
-                PartitionInterface::Direction::DOWN,
-                PartitionInterface::Direction::UP,
+            { int(c), int(partition.voxelY) }, { 0, -1 },
+                PartitionInterface::Direction::Y_NEGATIVE,
+                PartitionInterface::Direction::Y_POSITIVE,
                 transientInterfaceBottom, partitionIndexBottom);
         }
         // Add the last transient interfaces, as long as we have found one
@@ -658,7 +658,7 @@ void Map::calculatePartitionInterfaces()
         {
             addTransientInterface(partition,
                 transientInterfaceTop,
-                PartitionInterface::Direction::DOWN,
+                PartitionInterface::Direction::Y_NEGATIVE,
                 { 0,1 },
                 partitionIndex);
         }
@@ -666,7 +666,7 @@ void Map::calculatePartitionInterfaces()
         {
             addTransientInterface(partition,
                 transientInterfaceBottom,
-                PartitionInterface::Direction::UP,
+                PartitionInterface::Direction::Y_POSITIVE,
                 { 0,-1 },
                 partitionIndex);
         }
@@ -683,10 +683,10 @@ void Map::buildInterfaceVBO()
         for (const auto& interface : partition.interfaces)
         {
             static const sf::Color color(255, 128, 0, 64);
-            const float iLeft = float(interface.voxelLeftCol*SIM_VOXEL_SPACING);
-            const float iRight = float((interface.voxelLeftCol + interface.voxelW)*SIM_VOXEL_SPACING);
-            const float iTop = float((interface.voxelBottomRow + interface.voxelH)*SIM_VOXEL_SPACING);
-            const float iBottom = float(interface.voxelBottomRow*SIM_VOXEL_SPACING);
+            const float iLeft = float(interface.voxelX*SIM_VOXEL_SPACING);
+            const float iRight = float((interface.voxelX + interface.voxelLengthX)*SIM_VOXEL_SPACING);
+            const float iTop = float((interface.voxelY + interface.voxelLengthY)*SIM_VOXEL_SPACING);
+            const float iBottom = float(interface.voxelY*SIM_VOXEL_SPACING);
             vaSimPartitionInterfaces[4 * currInterface + 0].position = { iLeft, iBottom };
             vaSimPartitionInterfaces[4 * currInterface + 1].position = { iRight, iBottom };
             vaSimPartitionInterfaces[4 * currInterface + 2].position = { iRight, iTop };
@@ -709,13 +709,13 @@ Map::VoxelMeta::VoxelMeta(int partitionIndex, uint8_t interfacedDirs)
     ,interfacedDirectionFlags(interfacedDirs)
 {
 }
-Map::Partition::Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsigned h)
-    :voxelRow(rowBottom)
-    ,voxelCol(colLeft)
-    ,voxelW(w)
-    ,voxelH(h)
+Map::Partition::Partition(unsigned y, unsigned x, unsigned lx, unsigned ly)
+    :voxelY(y)
+    ,voxelX(x)
+    ,voxelLengthX(lx)
+    ,voxelLengthY(ly)
 {
-    const size_t gridSize = voxelW*voxelH;
+    const size_t gridSize = voxelLengthX*voxelLengthY;
     voxelModes = new double[gridSize];
     voxelModesPrevious = new double[gridSize];
     voxelForcingTerms = new double[gridSize];
@@ -730,21 +730,21 @@ Map::Partition::Partition(unsigned rowBottom, unsigned colLeft, unsigned w, unsi
         voxelForcingTerms[c] = 0;
         voxelPressures[c] = 0;
     }
-    planModeToPressure = fftw_plan_r2r_2d(voxelH, voxelW,
+    planModeToPressure = fftw_plan_r2r_2d(voxelLengthY, voxelLengthX,
         voxelModes, voxelPressures,
         FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
-    planForcingToModes = fftw_plan_r2r_2d(voxelH, voxelW,
+    planForcingToModes = fftw_plan_r2r_2d(voxelLengthY, voxelLengthX,
         voxelForcingTerms, voxelForcingTerms,
         FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }
 Map::Partition::Partition(const Partition & other)
-    :voxelRow(other.voxelRow)
-    ,voxelCol(other.voxelCol)
-    ,voxelW(other.voxelW)
-    ,voxelH(other.voxelH)
+    :voxelY(other.voxelY)
+    ,voxelX(other.voxelX)
+    ,voxelLengthX(other.voxelLengthX)
+    ,voxelLengthY(other.voxelLengthY)
     ,interfaces(other.interfaces)
 {
-    const size_t gridSize = voxelW*voxelH;
+    const size_t gridSize = voxelLengthX*voxelLengthY;
     voxelModes = new double[gridSize];
     voxelModesPrevious = new double[gridSize];
     voxelForcingTerms = new double[gridSize];
@@ -762,10 +762,10 @@ Map::Partition::Partition(const Partition & other)
         voxelForcingTerms[c] = other.voxelModesPrevious[c];
         voxelPressures[c] = other.voxelPressures[c];
     }
-    planModeToPressure = fftw_plan_r2r_2d(voxelH, voxelW,
+    planModeToPressure = fftw_plan_r2r_2d(voxelLengthY, voxelLengthX,
         voxelModes, voxelPressures,
         FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
-    planForcingToModes = fftw_plan_r2r_2d(voxelH, voxelW,
+    planForcingToModes = fftw_plan_r2r_2d(voxelLengthY, voxelLengthX,
         voxelForcingTerms, voxelForcingTerms,
         FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
 }
