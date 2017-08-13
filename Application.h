@@ -15,8 +15,10 @@ private:
 private:
     sf::RenderWindow& renderWindow;
     sf::View view;
+    sf::Vector2i mouseLeftClickPosition;
     sf::Vector2f mouseRightClickOrigin;
     sf::Vector2f mouseRightClickCenterScreen;
+    bool mouseHeldLeft;
     bool mouseHeldRight;
     float zoomPercent;
     Map map;

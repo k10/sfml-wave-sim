@@ -64,8 +64,8 @@ void Map::stepSimulation()
                 ///TODO: use world-space to compute "k" instead of local index space?..
                 /// (does it even actually matter?..)
                 const double k_i_2 = pow(PI, 2)*
-                    (pow(x,2)/pow(partition.voxelLengthX,2) +
-                     pow(y,2)/pow(partition.voxelLengthY,2));
+                    (pow(x + 1,2)/pow(partition.voxelLengthX,2) +
+                     pow(y + 1,2)/pow(partition.voxelLengthY,2));
                 const double k_i = sqrt(k_i_2);
                 const double omega_i = SOUND_SPEED_METERS_PER_SECOND*k_i;
                 // then, accumulate the modal terms //
@@ -92,15 +92,21 @@ void Map::stepSimulation()
         fftw_execute(partition.planModeToPressure);
         // normalize the iDCT result by dividing each cell by 2*size //
         ///TODO: figure out if I even need this???
-        //const double normalization = 2 * partition.voxelLengthY * 2 * partition.voxelLengthX;
-        //for (size_t y = 0; y < partition.voxelLengthY; y++)
-        //{
-        //    for (size_t x = 0; x < partition.voxelLengthX; x++)
-        //    {
-        //        const size_t i = y*partition.voxelLengthX + x;
-        //        partition.voxelPressures[i] /= normalization;
-        //    }
-        //}
+        //const double normalization = 2*sqrt(partition.voxelLengthY * partition.voxelLengthX);
+        const double normalization = 2*partition.voxelLengthY * 2*partition.voxelLengthX;
+        for (size_t y = 0; y < partition.voxelLengthY; y++)
+        {
+            for (size_t x = 0; x < partition.voxelLengthX; x++)
+            {
+                const size_t i = y*partition.voxelLengthX + x;
+                partition.voxelPressures[i] /= normalization;
+                ///DEBUG
+                if (partition.ps.printMe && i == partition.ps.voxelIndex)
+                {
+                    std::cout << "pointSourcePressure=" << partition.voxelPressures[i] << std::endl;
+                }
+            }
+        }
     }
     // Compute & accumulate forcing terms at each cell.
     //  for cells at interfaces, use equation (9),
@@ -120,7 +126,7 @@ void Map::stepSimulation()
                 const size_t v = globalGridY*voxelGridLengthX + globalGridX;
                 const size_t vLocal = y*partition.voxelLengthX + x;
                 /// TODO: figure out wtf this even should be?? and wtf does it mean??
-                static const double MAX_PRESSURE_MAGNITUDE = 0.0005;
+                static const double MAX_PRESSURE_MAGNITUDE = 0.00000005;
                 const double alphaPercent =
                     std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
                 const sf::Uint8 alpha = sf::Uint8(alphaPercent * 255);
@@ -175,8 +181,8 @@ void Map::stepSimulation()
                     unsigned partitionVoxelY = y - partition.voxelY;
                     const size_t partitionI = partitionVoxelY*partition.voxelLengthX + partitionVoxelX;
                     // Equation (9): (hopefully?..)
-                    partition.voxelForcingTerms[partitionI] = pow(SOUND_SPEED_METERS_PER_SECOND, 2)*
-                        (1.0 / 180 * pow(SIM_VOXEL_SPACING,2))*pressureStencil;
+                    partition.voxelForcingTerms[partitionI] += pow(SOUND_SPEED_METERS_PER_SECOND, 2)*
+                        (1.0 / (180 * pow(SIM_VOXEL_SPACING,2)))*pressureStencil;
                     assert(!_isnan(partition.voxelForcingTerms[partitionI]));
                 }
             }
@@ -192,6 +198,15 @@ void Map::stepSimulation()
     for (auto& partition : partitions)
     {
         fftw_execute(partition.planForcingToModes);
+        //const double normalization = 2 * sqrt(partition.voxelLengthY * partition.voxelLengthX);
+        //for (size_t y = 0; y < partition.voxelLengthY; y++)
+        //{
+        //    for (size_t x = 0; x < partition.voxelLengthX; x++)
+        //    {
+        //        const size_t i = y*partition.voxelLengthX + x;
+        //        partition.voxelForcingTerms[i] /= normalization;
+        //    }
+        //}
     }
 }
 void Map::toggleVoxelGrid()
@@ -224,6 +239,7 @@ void Map::touch(const sf::Vector2f & worldSpaceLocation)
             const size_t localGridY = size_t(localPosition.y / SIM_VOXEL_SPACING);
             const size_t i = localGridY*partition.voxelLengthX + localGridX;
             partition.ps = {i, SIM_DELTA_TIME , PointSource::Type::CLICK};
+            partition.ps.printMe = true;
             std::cout << "\t added a click! pressure="<<partition.voxelPressures[i]<<"\n";
             return;
         }
@@ -781,6 +797,7 @@ Map::PointSource::PointSource(size_t voxelIndex, float time, Type t)
     ,type(t)
     ,timeLeft(time)
     ,totalTime(time)
+    ,printMe(false)
 {
 }
 double Map::PointSource::step()

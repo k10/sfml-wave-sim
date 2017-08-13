@@ -36,12 +36,16 @@ int main(int argc, char** argv)
     std::cout << "originalVec="; dumpVec(vec); std::cout << std::endl;
     fftw_plan plan = fftw_plan_r2r_1d(vec.size(), &vec[0], &vec[0], FFTW_REDFT10, FFTW_ESTIMATE);
     fftw_execute(plan);
+    for (auto& value : vec)
+    {
+        value /= sqrt(2 * vec.size());
+    }
     std::cout << "DCT="; dumpVec(vec); std::cout << std::endl;
     fftw_plan planI = fftw_plan_r2r_1d(vec.size(), &vec[0], &vec[0], FFTW_REDFT01, FFTW_ESTIMATE);
     fftw_execute(planI);
     for (auto& value : vec)
     {
-        value /= 2 * vec.size();
+        value /= sqrt(2 * vec.size());
     }
     std::cout << "IDCT="; dumpVec(vec); std::cout << std::endl;
     // testing out mode->pressure plan because weird NaN shit is happening... //

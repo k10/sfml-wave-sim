@@ -38,6 +38,9 @@ Application::Application(sf::RenderWindow & rw, int argc, char** argv)
 }
 void Application::onEvent(const sf::Event & e)
 {
+    static const float ZOOM_DELTA = -0.00625f;
+    static const float MIN_ZOOM = DEFAULT_ZOOM * 2;
+    static const float MAX_ZOOM = 0.00125f;
     switch (e.type)
     {
     case sf::Event::KeyPressed:
@@ -52,13 +55,24 @@ void Application::onEvent(const sf::Event & e)
         case sf::Keyboard::Escape:
             renderWindow.close();
             break;
+        case sf::Keyboard::J:
+            zoomPercent += ZOOM_DELTA*-1;
+            zoomPercent = clampf(zoomPercent, MAX_ZOOM, MIN_ZOOM);
+            updateViewSize();
+            break;
+        case sf::Keyboard::K:
+            zoomPercent += ZOOM_DELTA*1;
+            zoomPercent = clampf(zoomPercent, MAX_ZOOM, MIN_ZOOM);
+            updateViewSize();
+            break;
         }
         break;
     case sf::Event::MouseButtonPressed:
         switch (e.mouseButton.button)
         {
         case sf::Mouse::Left:
-            map.touch(renderWindow.mapPixelToCoords({ e.mouseButton.x,e.mouseButton.y }));
+            mouseHeldLeft = true;
+            mouseLeftClickPosition = { e.mouseButton.x, e.mouseButton.y };
             break;
         case sf::Mouse::Right:
             mouseHeldRight = true;
@@ -74,6 +88,9 @@ void Application::onEvent(const sf::Event & e)
     case sf::Event::MouseButtonReleased:
         switch (e.mouseButton.button)
         {
+        case sf::Mouse::Left:
+            mouseHeldLeft = false;
+            break;
         case sf::Mouse::Right:
             mouseHeldRight = false;
             break;
@@ -90,9 +107,6 @@ void Application::onEvent(const sf::Event & e)
         break;
     case sf::Event::MouseWheelScrolled:
         {
-            static const float ZOOM_DELTA = -0.00625f;
-            static const float MIN_ZOOM = DEFAULT_ZOOM * 2;
-            static const float MAX_ZOOM = 0.00125f;
             //std::cout << "wheelDelta=" << e.mouseWheelScroll.delta << std::endl;
             zoomPercent += ZOOM_DELTA*e.mouseWheelScroll.delta;
             zoomPercent = clampf(zoomPercent, MAX_ZOOM, MIN_ZOOM);
@@ -104,6 +118,10 @@ void Application::onEvent(const sf::Event & e)
 void Application::tick(const sf::Time & deltaTime)
 {
     renderWindow.setView(view);
+    if (mouseHeldLeft)
+    {
+        map.touch(renderWindow.mapPixelToCoords(mouseLeftClickPosition));
+    }
     map.stepSimulation();
     map.draw(renderWindow);
     drawOrigin();
