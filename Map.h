@@ -39,7 +39,7 @@ private:
         Type type;
         float timeLeft;
         float totalTime;
-        bool printMe;
+        float printMeTime;
         PointSource(size_t voxelIndex = 0, float time = 0.f, Type t = Type::CLICK);
         double step();
     };

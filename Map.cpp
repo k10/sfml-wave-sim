@@ -92,8 +92,8 @@ void Map::stepSimulation()
         fftw_execute(partition.planModeToPressure);
         // normalize the iDCT result by dividing each cell by 2*size //
         ///TODO: figure out if I even need this???
-        //const double normalization = 2*sqrt(partition.voxelLengthY * partition.voxelLengthX);
-        const double normalization = 2*partition.voxelLengthY * 2*partition.voxelLengthX;
+        const double normalization = 2*sqrt(partition.voxelLengthY * partition.voxelLengthX);
+        //const double normalization = 2*partition.voxelLengthY * 2*partition.voxelLengthX;
         for (size_t y = 0; y < partition.voxelLengthY; y++)
         {
             for (size_t x = 0; x < partition.voxelLengthX; x++)
@@ -101,9 +101,10 @@ void Map::stepSimulation()
                 const size_t i = y*partition.voxelLengthX + x;
                 partition.voxelPressures[i] /= normalization;
                 ///DEBUG
-                if (partition.ps.printMe && i == partition.ps.voxelIndex)
+                if (partition.ps.printMeTime > 0 && i == partition.ps.voxelIndex)
                 {
                     std::cout << "pointSourcePressure=" << partition.voxelPressures[i] << std::endl;
+                    partition.ps.printMeTime -= SIM_DELTA_TIME;
                 }
             }
         }
@@ -126,7 +127,7 @@ void Map::stepSimulation()
                 const size_t v = globalGridY*voxelGridLengthX + globalGridX;
                 const size_t vLocal = y*partition.voxelLengthX + x;
                 /// TODO: figure out wtf this even should be?? and wtf does it mean??
-                static const double MAX_PRESSURE_MAGNITUDE = 0.00000005;
+                static const double MAX_PRESSURE_MAGNITUDE = 1.0;
                 const double alphaPercent =
                     std::min(abs(partition.voxelPressures[vLocal]) / MAX_PRESSURE_MAGNITUDE, 1.0);
                 const sf::Uint8 alpha = sf::Uint8(alphaPercent * 255);
@@ -198,15 +199,15 @@ void Map::stepSimulation()
     for (auto& partition : partitions)
     {
         fftw_execute(partition.planForcingToModes);
-        //const double normalization = 2 * sqrt(partition.voxelLengthY * partition.voxelLengthX);
-        //for (size_t y = 0; y < partition.voxelLengthY; y++)
-        //{
-        //    for (size_t x = 0; x < partition.voxelLengthX; x++)
-        //    {
-        //        const size_t i = y*partition.voxelLengthX + x;
-        //        partition.voxelForcingTerms[i] /= normalization;
-        //    }
-        //}
+        const double normalization = 2 * sqrt(partition.voxelLengthY * partition.voxelLengthX);
+        for (size_t y = 0; y < partition.voxelLengthY; y++)
+        {
+            for (size_t x = 0; x < partition.voxelLengthX; x++)
+            {
+                const size_t i = y*partition.voxelLengthX + x;
+                partition.voxelForcingTerms[i] /= normalization;
+            }
+        }
     }
 }
 void Map::toggleVoxelGrid()
@@ -239,7 +240,7 @@ void Map::touch(const sf::Vector2f & worldSpaceLocation)
             const size_t localGridY = size_t(localPosition.y / SIM_VOXEL_SPACING);
             const size_t i = localGridY*partition.voxelLengthX + localGridX;
             partition.ps = {i, SIM_DELTA_TIME , PointSource::Type::CLICK};
-            partition.ps.printMe = true;
+            partition.ps.printMeTime = 1;
             std::cout << "\t added a click! pressure="<<partition.voxelPressures[i]<<"\n";
             return;
         }
@@ -797,7 +798,7 @@ Map::PointSource::PointSource(size_t voxelIndex, float time, Type t)
     ,type(t)
     ,timeLeft(time)
     ,totalTime(time)
-    ,printMe(false)
+    ,printMeTime(0.f)
 {
 }
 double Map::PointSource::step()
@@ -807,7 +808,7 @@ double Map::PointSource::step()
     {
     case PointSource::Type::CLICK:
         std::cout << "\tclick stepped!\n";
-        return 1.0;///WTF does this even mean?..  what units are  these?..
+        return 1.0*(1.0/SIM_DELTA_TIME)*(1.0/pow(SIM_VOXEL_SPACING,2));///WTF does this even mean?..  what units are  these?..
     case PointSource::Type::GAUSIAN_PULSE:
         ///TODO: calculate a broadband gausian pulse of unit amplitude or w/e
         /// Kinda like this: http://www.gaussianwaves.com/2014/07/generating-basic-signals-gaussian-pulse-and-power-spectral-density-using-fft/
